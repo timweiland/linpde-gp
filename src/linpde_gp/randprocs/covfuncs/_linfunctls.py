@@ -128,6 +128,17 @@ def _(self, k: pn.randprocs.covfuncs.CovarianceFunction, /, *, argnum: int = 0):
     return CovarianceFunction_Identity_LebesgueIntegral(k, self, reverse=(argnum == 0))
 
 
+@LebesgueIntegral.__call__.register # pylint: disable=no-member
+def _(self, k: covfuncs.StackCovarianceFunction, /, *, argnum: int = 0):
+    from ..crosscov import (  # pylint: disable=import-outside-toplevel
+        StackedProcessVectorCrossCovariance,
+    )
+
+    return StackedProcessVectorCrossCovariance(
+        *(self(covfunc, argnum=argnum) for covfunc in k.covfuncs)
+    )
+
+
 @LebesgueIntegral.__call__.register  # pylint: disable=no-member
 def _(self, k: pn.randprocs.covfuncs.Matern, /, *, argnum: int = 0):
     if argnum not in (0, 1):
