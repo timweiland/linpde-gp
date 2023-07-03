@@ -1,2 +1,3 @@
 from ._covfunc_lebesgue import CovarianceFunction_Identity_LebesgueIntegral
 from ._matern_lebesgue import UnivariateHalfIntegerMaternLebesgueIntegral
+from ._tensor_product_lebesgue import TensorProduct_Identity_LebesgueIntegral

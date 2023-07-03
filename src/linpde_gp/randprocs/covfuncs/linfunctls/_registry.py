@@ -190,6 +190,22 @@ def _(self, k: pn_covfuncs.Matern, /, *, argnum: int = 0):
     return covfunc_lebesgue_integral(self, k, argnum=argnum)
 
 
+@linfunctls.LebesgueIntegral.__call__.register  # pylint: disable=no-member
+def _(self, k: covfuncs.TensorProduct, /, *, argnum: int = 0):
+    if argnum not in (0, 1):
+        raise ValueError("`argnum` must either be 0 or 1.")
+
+    from ...crosscov.linfunctls.integrals import (  # pylint: disable=import-outside-toplevel
+        TensorProduct_Identity_LebesgueIntegral,
+    )
+
+    return TensorProduct_Identity_LebesgueIntegral(
+        tensor_product=k,
+        integral=self,
+        reverse=(argnum == 0),
+    )
+
+
 ########################################################################################
 # Projections ##########################################################################
 ########################################################################################

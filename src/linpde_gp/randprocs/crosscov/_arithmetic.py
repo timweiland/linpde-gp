@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 import functools
+from math import prod
 import operator
 
 from jax import numpy as jnp
@@ -45,6 +46,9 @@ class ScaledProcessVectorCrossCovariance(_pv_crosscov.ProcessVectorCrossCovarian
 
         return self._scalar * covop
 
+    def __repr__(self) -> str:
+        return f"{self._scalar} * {self._pv_crosscov}"
+
 
 class SumProcessVectorCrossCovariance(_pv_crosscov.ProcessVectorCrossCovariance):
     def __init__(self, *pv_crosscovs: _pv_crosscov.ProcessVectorCrossCovariance):
@@ -87,6 +91,56 @@ class SumProcessVectorCrossCovariance(_pv_crosscov.ProcessVectorCrossCovariance)
             ),
         )
 
+    def __repr__(self) -> str:
+        return " + ".join(repr(pv_crosscov) for pv_crosscov in self._pv_crosscovs)
+
+
+class TensorProductProcessVectorCrossCovariance(
+    _pv_crosscov.ProcessVectorCrossCovariance
+):
+    def __init__(self, *pv_crosscovs: _pv_crosscov.ProcessVectorCrossCovariance):
+        self._pv_crosscovs = tuple(pv_crosscovs)
+
+        assert all(
+            pv_crosscov.randproc_input_shape == pv_crosscovs[0].randproc_input_shape
+            and (
+                pv_crosscov.randproc_output_shape
+                == pv_crosscovs[0].randproc_output_shape
+            )
+            and pv_crosscov.randvar_shape == pv_crosscovs[0].randvar_shape
+            and pv_crosscov.reverse == pv_crosscovs[0].reverse
+            for pv_crosscov in self._pv_crosscovs
+        )
+
+        super().__init__(
+            randproc_input_shape=(len(self._pv_crosscovs),),
+            randproc_output_shape=self._pv_crosscovs[0].randproc_output_shape,
+            randvar_shape=self._pv_crosscovs[0].randvar_shape,
+            reverse=self._pv_crosscovs[0].reverse,
+        )
+
+    @property
+    def pv_crosscovs(self) -> Sequence[_pv_crosscov.ProcessVectorCrossCovariance]:
+        return self._pv_crosscovs
+
+    def _evaluate(self, x: np.ndarray) -> np.ndarray:
+        return prod(
+            pv_crosscov(x[..., dim])
+            for dim, pv_crosscov in enumerate(self._pv_crosscovs)
+        )
+
+    def _evaluate_jax(self, x: jnp.ndarray) -> jnp.ndarray:
+        return prod(
+            pv_crosscov.jax(x[..., dim])
+            for dim, pv_crosscov in enumerate(self._pv_crosscovs)
+        )
+
+    def __repr__(self) -> str:
+        res = "TensorProductPVCrosscov [\n\t"
+        res += ",\n\t".join(repr(pv_crosscov) for pv_crosscov in self._pv_crosscovs)
+        res += "\n]"
+        return res
+
 
 class LinOpProcessVectorCrossCovariance(_pv_crosscov.ProcessVectorCrossCovariance):
     def __init__(
@@ -128,3 +182,6 @@ class LinOpProcessVectorCrossCovariance(_pv_crosscov.ProcessVectorCrossCovarianc
         covop = self._pv_crosscov._evaluate_linop(x)  # pylint: disable=protected-access
 
         return self._linop @ covop
+
+    def __repr__(self) -> str:
+        return f"{repr(self._linop)} @ {repr(self._pv_crosscov)}"

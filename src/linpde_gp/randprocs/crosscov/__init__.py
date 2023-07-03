@@ -2,6 +2,7 @@ from ._arithmetic import (
     LinOpProcessVectorCrossCovariance,
     ScaledProcessVectorCrossCovariance,
     SumProcessVectorCrossCovariance,
+    TensorProductProcessVectorCrossCovariance,
 )
 from ._parametric import ParametricProcessVectorCrossCovariance
 from ._pv_crosscov import ProcessVectorCrossCovariance
