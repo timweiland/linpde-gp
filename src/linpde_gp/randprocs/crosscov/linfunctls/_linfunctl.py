@@ -16,6 +16,7 @@ from ._evaluation import (
     CovarianceFunction_Evaluation_Identity,
     CovarianceFunction_Identity_Evaluation,
 )
+from .._zero import Zero
 
 
 @LinearFunctional.__call__.register  # pylint: disable=no-member
@@ -44,6 +45,18 @@ def _(
     shape0 = array_res.shape[: cov.ndim0]
     shape1 = array_res.shape[cov.ndim0 :]
     return ArrayCovariance(array_res, shape0, shape1)
+
+
+@LinearFunctional.__call__.register(Zero)  # pylint: disable=no-member
+def _(self: LinearFunctional, pv_crosscov: Zero, /) -> pn.linops.LinearOperator | float:
+    if self.output_shape == () and pv_crosscov.randvar_shape == ():
+        return 0.0
+
+    return pn.linops.Zero(
+        shape=(pv_crosscov.randvar_size, self.output_size)
+        if pv_crosscov.reverse
+        else (self.output_size, pv_crosscov.randvar_size)
+    )
 
 
 @LinearFunctional.__call__.register(  # pylint: disable=no-member
