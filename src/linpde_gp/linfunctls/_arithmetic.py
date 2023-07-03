@@ -54,6 +54,9 @@ class ScaledLinearFunctional(_linfunctl.LinearFunctional):
 
         return super().__rmul__(other)
 
+    def __repr__(self) -> str:
+        return f"{self._scalar} * {self._linfunctl}"
+
 
 class SumLinearFunctional(_linfunctl.LinearFunctional):
     def __init__(self, *summands: _linfunctl.LinearFunctional) -> None:
@@ -87,6 +90,9 @@ class SumLinearFunctional(_linfunctl.LinearFunctional):
     @__call__.register
     def _(self, randproc: pn.randprocs.RandomProcess, /) -> pn.randprocs.RandomProcess:
         return super().__call__(randproc)
+
+    def __repr__(self) -> str:
+        return " + ".join(repr(summand) for summand in self._summands)
 
 
 class CompositeLinearFunctional(_linfunctl.LinearFunctional):
@@ -172,3 +178,6 @@ class CompositeLinearFunctional(_linfunctl.LinearFunctional):
             )
 
         return super().__rmatmul__(other)
+
+    def __repr__(self) -> str:
+        return " @ ".join((f"({op})" for op in (self._linop, self._linfunctl, self._linfuncop) if op is not None))
