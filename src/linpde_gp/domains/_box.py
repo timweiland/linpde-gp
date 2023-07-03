@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -51,6 +52,14 @@ class Box(CartesianProduct):
     @property
     def bounds(self) -> np.ndarray:
         return self._bounds
+
+    @property
+    def dimension(self) -> int:
+        return len(self.bounds)
+
+    @functools.cached_property
+    def center(self) -> np.ndarray:
+        return np.mean(self.bounds, axis=1)
 
     def __getitem__(self, idx) -> Interval | Box:
         if isinstance(idx, int):
@@ -112,3 +121,21 @@ class Box(CartesianProduct):
             ),
             indexing="ij",
         )
+
+    def subdivide_binary(self) -> "tuple[Box, ...]":
+        if self.dimension == 0:
+            return []
+        if self.dimension == 1:
+            return [
+                Box(((self.bounds[0][0], self.center[0]),)),
+                Box(((self.center[0], self.bounds[0][1]),)),
+            ]
+        first_bounds = self.bounds[0]
+        bounds_A = np.array([[first_bounds[0], self.center[0]]])
+        bounds_B = np.array([[self.center[0], first_bounds[1]]])
+        subvolumes = Box(self.bounds[1:]).subdivide()
+        return [
+            Box(np.concatenate((bounds, vol.bounds)))
+            for bounds in (bounds_A, bounds_B)
+            for vol in subvolumes
+        ]
