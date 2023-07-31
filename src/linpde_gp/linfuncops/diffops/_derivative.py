@@ -20,8 +20,6 @@ class Derivative(PartialDerivative):
             MultiIndex(order),
         )
 
-        self._order = order
-
     @functools.singledispatchmethod
     def weak_form(
         self, test_basis: pn.functions.Function, /
