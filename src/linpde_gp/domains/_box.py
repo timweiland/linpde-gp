@@ -133,7 +133,7 @@ class Box(CartesianProduct):
         first_bounds = self.bounds[0]
         bounds_A = np.array([[first_bounds[0], self.center[0]]])
         bounds_B = np.array([[self.center[0], first_bounds[1]]])
-        subvolumes = Box(self.bounds[1:]).subdivide()
+        subvolumes = Box(self.bounds[1:]).subdivide_binary()
         return [
             Box(np.concatenate((bounds, vol.bounds)))
             for bounds in (bounds_A, bounds_B)
