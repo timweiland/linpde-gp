@@ -6,7 +6,7 @@ from ._jax import JaxFunction, JaxLambdaFunction
 from ._jax_arithmetic import JaxScaledFunction, JaxSumFunction
 from ._piecewise import Piecewise, PiecewiseConstant, PiecewiseLinear
 from ._polynomial import Monomial, Polynomial, RationalPolynomial
-from ._stack import StackedFunction, stack
+from ._stack import StackedFunction
 from ._truncated_gmm import TruncatedGaussianMixturePDF
 
 from . import _linfunctls, linfuncops  # isort: skip

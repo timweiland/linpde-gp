@@ -60,6 +60,6 @@ class LebesgueIntegral(_linfunctl.LinearFunctional):
     @__call__.register
     def _(self, f: functions.Constant, /) -> np.ndarray:
         return f.value * self._domain.volume
-    
+
     def __repr__(self) -> str:
         return f"∫_{{{self._domain}}}"
