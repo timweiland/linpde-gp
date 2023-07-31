@@ -73,6 +73,9 @@ class WeightedLaplacian(LinearDifferentialOperator):
     ) -> "linpde_gp.linfunctls.LinearFunctional":
         raise NotImplementedError()
 
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}(weights={self.weights})"
+
 
 class Laplacian(WeightedLaplacian):
     def __init__(self, domain_shape: ShapeLike) -> None:

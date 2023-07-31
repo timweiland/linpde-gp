@@ -15,6 +15,7 @@ from ._shallow_water import (
     get_shallow_water_diffops_1D,
     get_shallow_water_diffops_2D,
 )
+from ._wave import WaveOperator
 
 # isort: off
 from . import _functions
