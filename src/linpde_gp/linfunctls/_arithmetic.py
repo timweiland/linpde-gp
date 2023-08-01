@@ -180,4 +180,10 @@ class CompositeLinearFunctional(_linfunctl.LinearFunctional):
         return super().__rmatmul__(other)
 
     def __repr__(self) -> str:
-        return " @ ".join((f"({op})" for op in (self._linop, self._linfunctl, self._linfuncop) if op is not None))
+        return " @ ".join(
+            (
+                f"({op})"
+                for op in (self._linop, self._linfunctl, self._linfuncop)
+                if op is not None
+            )
+        )
