@@ -106,15 +106,16 @@ def _(
         output_shape_1=(),
     )
 
-    assert isinstance(self.idx, int)
-
+    # TODO Clean this up, maybe once IndependentMultiOutput is more general
+    stacked_covfuncs = np.full(
+        len(k.covfuncs),
+        zero_cov,
+    )
+    int_idx = self.idx
+    if isinstance(int_idx, tuple):
+        int_idx = int_idx[0]
+    stacked_covfuncs[self.idx] = k.covfuncs[int_idx]
     return covfuncs.StackCovarianceFunction(
-        tuple(
-            (
-                *([zero_cov] * self.idx),
-                k.covfuncs[self.idx],
-                *([zero_cov] * (len(k.covfuncs) - self.idx - 1)),
-            )
-        ),
+        stacked_covfuncs,
         output_idx=1 - argnum,
     )
