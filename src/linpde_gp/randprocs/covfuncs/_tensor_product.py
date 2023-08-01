@@ -81,6 +81,9 @@ class TensorProduct(
             return functools.reduce(pn.linops.Kronecker, kronecker_factors)
         return super().linop(x0, x1)
 
+    def __repr__(self) -> str:
+        return "TensorProduct [\n\t" + ",\n\t".join(map(repr, self._factors)) + "\n]"
+
 
 def evaluate_dimensionwise(
     ks: Iterable[pn.randprocs.covfuncs.CovarianceFunction],

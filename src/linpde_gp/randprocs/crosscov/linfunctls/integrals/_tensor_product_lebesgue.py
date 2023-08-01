@@ -48,9 +48,11 @@ def as_num(x: Covariance):
 
 
 @linfunctls.LebesgueIntegral.__call__.register(  # pylint: disable=no-member
-    TensorProduct_Identity_LebesgueIntegral
+    _arithmetic.TensorProductProcessVectorCrossCovariance
 )
-def _(self, pv_crosscov: TensorProduct_Identity_LebesgueIntegral, /) -> Covariance:
+def _(
+    self, pv_crosscov: _arithmetic.TensorProductProcessVectorCrossCovariance, /
+) -> Covariance:
     res = prod(
         as_num(linfunctls.LebesgueIntegral(domain, factor.randproc_input_shape)(factor))
         for domain, factor in zip(self.domain.factors, pv_crosscov.pv_crosscovs)
@@ -58,16 +60,32 @@ def _(self, pv_crosscov: TensorProduct_Identity_LebesgueIntegral, /) -> Covarian
     return ArrayCovariance(res, (), ())
 
 
+# TODO: Compare at some point whether pulling the diffop has advantages
+# over directly applying partial derivatives to TensorProduct crosscov.
+# @linfuncops.diffops.LinearDifferentialOperator.__call__.register(  # pylint: disable=no-member
+#     TensorProduct_Identity_LebesgueIntegral
+# )
+# def _(
+#     self: linfuncops.diffops.LinearDifferentialOperator,
+#     pv_crosscov: TensorProduct_Identity_LebesgueIntegral,
+#     /,
+# ):
+#     integral_argnum = 0 if pv_crosscov.reverse else 1
+#     return pv_crosscov.integral(
+#         self(pv_crosscov.tensor_product, argnum=1 - integral_argnum),
+#         argnum=integral_argnum
+#     )
+
+
 @linfuncops.diffops.PartialDerivative.__call__.register(  # pylint: disable=no-member
-    TensorProduct_Identity_LebesgueIntegral
+    _arithmetic.TensorProductProcessVectorCrossCovariance
 )
 def _(
     self: linfuncops.diffops.PartialDerivative,
-    pv_crosscov: TensorProduct_Identity_LebesgueIntegral,
+    pv_crosscov: _arithmetic.TensorProductProcessVectorCrossCovariance,
     /,
-) -> TensorProduct_Identity_LebesgueIntegral:
-    return TensorProduct_Identity_LebesgueIntegral(
-        self(pv_crosscov.tensor_product, argnum=1 if pv_crosscov.reverse else 0),
-        pv_crosscov.integral,
-        reverse=pv_crosscov.reverse,
-    )
+):
+    factors = []
+    for dim_order, factor in zip(self.multi_index.array, pv_crosscov.pv_crosscovs):
+        factors.append(linfuncops.diffops.Derivative(dim_order)(factor))
+    return _arithmetic.TensorProductProcessVectorCrossCovariance(*factors)
