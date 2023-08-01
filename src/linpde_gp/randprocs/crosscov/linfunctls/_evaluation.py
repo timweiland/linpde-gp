@@ -133,7 +133,7 @@ class CovarianceFunction_Identity_Evaluation(ProcessVectorCrossCovariance):
 
         assert X.shape == X_batch_shape + self._covfunc.input_shape
 
-        kxX = self._covfunc(x, X)
+        kxX = self._covfunc.jax(x, X)
 
         assert kxX.shape == (
             x_batch_shape + X_batch_shape + x_output_shape + X_output_shape
@@ -182,13 +182,9 @@ class CovarianceFunction_Evaluation_Identity(ProcessVectorCrossCovariance):
         self._covfunc = covfunc
         self._evaluation_fctl = evaluation_fctl
 
-        randproc_output_shape = self._covfunc.output_shape[
-            self._evaluation_fctl.input_codomain_ndim :
-        ]
-
         super().__init__(
             randproc_input_shape=self._covfunc.input_shape,
-            randproc_output_shape=randproc_output_shape,
+            randproc_output_shape=self._covfunc.output_shape_1,
             randvar_shape=self._evaluation_fctl.output_shape,
             reverse=True,
         )
@@ -233,9 +229,9 @@ class CovarianceFunction_Evaluation_Identity(ProcessVectorCrossCovariance):
             + self._covfunc.input_shape
         )
 
-        kxX = self._covfunc(x, X)
+        kXx = self._covfunc(X, x)
 
-        assert kxX.shape == (
+        assert kXx.shape == (
             X_batch_shape + x_batch_shape + X_output_shape + x_output_shape
         )
 
@@ -243,18 +239,18 @@ class CovarianceFunction_Evaluation_Identity(ProcessVectorCrossCovariance):
         # Crucially, in contrast to the DiracFunctional, here the output shape
         # of the X component comes first
         # X_output_shape + X_batch_shape + x_batch_shape + x_output_shape
-        kxX = kxX.transpose(
+        kXx = kXx.transpose(
             tuple(range(X_output_offset, X_output_offset + X_output_ndim))
             + tuple(range(X_batch_offset, X_batch_offset + X_batch_ndim))
             + tuple(range(x_batch_offset, x_batch_offset + x_batch_ndim))
             + tuple(range(x_output_offset, x_output_offset + x_output_ndim))
         )
 
-        assert kxX.shape == (
+        assert kXx.shape == (
             X_output_shape + X_batch_shape + x_batch_shape + x_output_shape
         )
 
-        return kxX
+        return kXx
 
     def _evaluate_jax(self, x: jnp.ndarray) -> jnp.ndarray:
         # `kXx.shape` layout:
@@ -288,9 +284,9 @@ class CovarianceFunction_Evaluation_Identity(ProcessVectorCrossCovariance):
             + self._covfunc.input_shape
         )
 
-        kxX = self._covfunc(x, X)
+        kXx = self._covfunc(X, x)
 
-        assert kxX.shape == (
+        assert kXx.shape == (
             X_batch_shape + x_batch_shape + X_output_shape + x_output_shape
         )
 
@@ -298,18 +294,18 @@ class CovarianceFunction_Evaluation_Identity(ProcessVectorCrossCovariance):
         # Crucially, in contrast to the DiracFunctional, here the output shape
         # of the X component comes first
         # X_output_shape + X_batch_shape + x_batch_shape + x_output_shape
-        kxX = kxX.transpose(
+        kXx = kXx.transpose(
             tuple(range(X_output_offset, X_output_offset + X_output_ndim))
             + tuple(range(X_batch_offset, X_batch_offset + X_batch_ndim))
             + tuple(range(x_batch_offset, x_batch_offset + x_batch_ndim))
             + tuple(range(x_output_offset, x_output_offset + x_output_ndim))
         )
 
-        assert kxX.shape == (
+        assert kXx.shape == (
             X_output_shape + X_batch_shape + x_batch_shape + x_output_shape
         )
 
-        return kxX
+        return kXx
 
     def _evaluate_linop(self, x: np.ndarray) -> pn.linops.LinearOperator:
         return self.covfunc.linop(self._evaluation_fctl.X, x)
