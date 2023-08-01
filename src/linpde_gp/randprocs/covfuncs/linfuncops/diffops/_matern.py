@@ -291,6 +291,10 @@ class UnivariateHalfIntegerMatern_DirectionalDerivative_DirectionalDerivative(
 
         self._poly = -half_integer_matern_derivative_polynomial(self._matern.p, 2)
 
+    @property
+    def matern(self) -> covfuncs.Matern:
+        return self._matern
+
     @functools.cached_property
     def _scaled_directions_prod(self) -> np.floating:
         return np.squeeze(
@@ -540,6 +544,10 @@ class UnivariateHalfIntegerMatern_DirectionalDerivative_WeightedLaplacian(
         self._poly = half_integer_matern_derivative_polynomial(matern.p, 3) // Monomial(
             1
         )
+
+    @property
+    def reverse(self) -> bool:
+        return self._reverse
 
     @property
     def matern(self) -> covfuncs.Matern:

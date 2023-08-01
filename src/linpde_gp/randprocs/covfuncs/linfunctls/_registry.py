@@ -8,7 +8,8 @@ from probnum.randprocs.covfuncs._arithmetic_fallbacks import (
     SumCovarianceFunction,
 )
 
-from linpde_gp import linfunctls
+from linpde_gp import domains, linfunctls
+from linpde_gp.linfuncops.diffops import Derivative, PartialDerivative
 from linpde_gp.linfunctls._evaluation import _EvaluationFunctional
 from linpde_gp.linfunctls.projections.l2 import (
     L2Projection_UnivariateLinearInterpolationBasis,
@@ -203,6 +204,165 @@ def _(self, k: covfuncs.TensorProduct, /, *, argnum: int = 0):
         tensor_product=k,
         integral=self,
         reverse=(argnum == 0),
+    )
+
+
+@linfunctls.LebesgueIntegral.__call__.register(  # pylint: disable=no-member
+    covfuncs.linfuncops.diffops.HalfIntegerMatern_Identity_DirectionalDerivative
+)
+def _(
+    self,
+    covfunc: covfuncs.linfuncops.diffops.HalfIntegerMatern_Identity_DirectionalDerivative,
+    /,
+    *,
+    argnum: int = 0,
+):
+    if not isinstance(self.domain, domains.Interval):
+        raise NotImplementedError()
+
+    from ...crosscov.linfunctls import CovarianceFunction_Identity_Difference
+
+    integral_reverse = argnum == 0
+    if covfunc.reverse != integral_reverse:
+        return -1 * CovarianceFunction_Identity_Difference(
+            covfunc.matern,
+            self.domain[0],
+            self.domain[1],
+            reverse=integral_reverse,
+        )
+    return CovarianceFunction_Identity_Difference(
+        covfunc.matern,
+        self.domain[0],
+        self.domain[1],
+        reverse=integral_reverse,
+    )
+
+
+@linfunctls.LebesgueIntegral.__call__.register(  # pylint: disable=no-member
+    covfuncs.linfuncops.diffops.UnivariateHalfIntegerMatern_Identity_WeightedLaplacian
+)
+def _(
+    self,
+    covfunc: covfuncs.linfuncops.diffops.UnivariateHalfIntegerMatern_Identity_WeightedLaplacian,
+    /,
+    *,
+    argnum: int = 0,
+):
+    if not isinstance(self.domain, domains.Interval):
+        raise NotImplementedError()
+
+    from ...crosscov.linfunctls import CovarianceFunction_Identity_Difference
+
+    integral_reverse = argnum == 0
+    D = Derivative(1)
+    if covfunc.reverse != integral_reverse:
+        return -1 * CovarianceFunction_Identity_Difference(
+            D(covfunc.matern, argnum=1 - argnum),
+            self.domain[0],
+            self.domain[1],
+            reverse=integral_reverse,
+        )
+    return CovarianceFunction_Identity_Difference(
+        D(covfunc.matern, argnum=argnum),
+        self.domain[0],
+        self.domain[1],
+        reverse=integral_reverse,
+    )
+
+
+def reduce_derivative_order(
+    k: pn_covfuncs.CovarianceFunction,
+    D1: PartialDerivative,
+    D2: PartialDerivative,
+    argnum: int,
+):
+    assert D1.input_domain_shape == () and D2.input_domain_shape == ()
+    if argnum == 0:
+        D1 = Derivative(D1.order - 1)
+    else:
+        D2 = Derivative(D2.order - 1)
+    return D1(D2(k, argnum=1), argnum=0)
+
+
+@linfunctls.LebesgueIntegral.__call__.register(  # pylint: disable=no-member
+    covfuncs.linfuncops.diffops.UnivariateHalfIntegerMatern_DirectionalDerivative_DirectionalDerivative
+)
+def _(
+    self,
+    covfunc: covfuncs.linfuncops.diffops.UnivariateHalfIntegerMatern_DirectionalDerivative_DirectionalDerivative,
+    /,
+    *,
+    argnum: int = 0,
+):
+    if not isinstance(self.domain, domains.Interval):
+        raise NotImplementedError()
+
+    from ...crosscov.linfunctls import CovarianceFunction_Identity_Difference
+
+    integral_reverse = argnum == 0
+    D1 = Derivative(1)
+    D2 = Derivative(1)
+    return CovarianceFunction_Identity_Difference(
+        reduce_derivative_order(covfunc.matern, D1, D2, argnum),
+        self.domain[0],
+        self.domain[1],
+        reverse=integral_reverse,
+    )
+
+
+@linfunctls.LebesgueIntegral.__call__.register(  # pylint: disable=no-member
+    covfuncs.linfuncops.diffops.UnivariateHalfIntegerMatern_DirectionalDerivative_WeightedLaplacian
+)
+def _(
+    self,
+    covfunc: covfuncs.linfuncops.diffops.UnivariateHalfIntegerMatern_DirectionalDerivative_WeightedLaplacian,
+    /,
+    *,
+    argnum: int = 0,
+):
+    if not isinstance(self.domain, domains.Interval):
+        raise NotImplementedError()
+
+    from ...crosscov.linfunctls import CovarianceFunction_Identity_Difference
+
+    integral_reverse = argnum == 0
+    if covfunc.reverse:
+        D1 = Derivative(2)
+        D2 = Derivative(1)
+    else:
+        D1 = Derivative(1)
+        D2 = Derivative(2)
+    return CovarianceFunction_Identity_Difference(
+        reduce_derivative_order(covfunc.matern, D1, D2, argnum),
+        self.domain[0],
+        self.domain[1],
+        reverse=integral_reverse,
+    )
+
+
+@linfunctls.LebesgueIntegral.__call__.register(  # pylint: disable=no-member
+    covfuncs.linfuncops.diffops.UnivariateHalfIntegerMatern_WeightedLaplacian_WeightedLaplacian
+)
+def _(
+    self,
+    covfunc: covfuncs.linfuncops.diffops.UnivariateHalfIntegerMatern_WeightedLaplacian_WeightedLaplacian,
+    /,
+    *,
+    argnum: int = 0,
+):
+    if not isinstance(self.domain, domains.Interval):
+        raise NotImplementedError()
+
+    from ...crosscov.linfunctls import CovarianceFunction_Identity_Difference
+
+    integral_reverse = argnum == 0
+    D1 = Derivative(2)
+    D2 = Derivative(2)
+    return CovarianceFunction_Identity_Difference(
+        reduce_derivative_order(covfunc.matern, D1, D2, argnum),
+        self.domain[0],
+        self.domain[1],
+        reverse=integral_reverse,
     )
 
 
