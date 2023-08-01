@@ -1,6 +1,6 @@
 import dataclasses
 import functools
-from typing import Type
+from typing import Optional, Type
 
 import numpy as np
 import probnum as pn
@@ -13,8 +13,8 @@ class CovarianceFunctionLinearFunctionalTestCase:
     k: pn.randprocs.covfuncs.CovarianceFunction
     L: linpde_gp.linfunctls.LinearFunctional | None
 
-    Lk_fallback: linpde_gp.randprocs.crosscov.ProcessVectorCrossCovariance
-    kL_fallback: linpde_gp.randprocs.crosscov.ProcessVectorCrossCovariance
+    Lk_fallback: Optional[linpde_gp.randprocs.crosscov.ProcessVectorCrossCovariance]
+    kL_fallback: Optional[linpde_gp.randprocs.crosscov.ProcessVectorCrossCovariance]
 
     X_test: np.ndarray
 

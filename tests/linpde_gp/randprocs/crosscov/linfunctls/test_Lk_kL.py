@@ -1,5 +1,6 @@
 import numpy as np
 
+import pytest
 from pytest_cases import parametrize_with_cases
 
 from .cases import CovarianceFunctionLinearFunctionalTestCase, case_modules
@@ -15,6 +16,8 @@ def test_expected_type(test_case: CovarianceFunctionLinearFunctionalTestCase):
 
 @parametrize_with_cases("test_case", cases=case_modules)
 def test_Lk(test_case: CovarianceFunctionLinearFunctionalTestCase):
+    if test_case.Lk_fallback is None:
+        pytest.skip("Lk fallback is not defined.")
     Lk_X_test = test_case.Lk(test_case.X_test)
     Lk_fallback_X_test = test_case.Lk_fallback(test_case.X_test)
 
@@ -23,7 +26,9 @@ def test_Lk(test_case: CovarianceFunctionLinearFunctionalTestCase):
 
 @parametrize_with_cases("test_case", cases=case_modules)
 def test_kL(test_case: CovarianceFunctionLinearFunctionalTestCase):
-    kL_X_test = test_case.Lk(test_case.X_test)
+    if test_case.kL_fallback is None:
+        pytest.skip("kL fallback is not defined.")
+    kL_X_test = test_case.kL(test_case.X_test)
     kL_fallback_X_test = test_case.kL_fallback(test_case.X_test)
 
     np.testing.assert_allclose(kL_X_test, kL_fallback_X_test)
