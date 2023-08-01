@@ -125,6 +125,14 @@ class UnivariateHalfIntegerMaternLebesgueIntegral(
     def matern(self) -> covfuncs.Matern:
         return self.covfunc
 
+    def __repr__(self) -> str:
+        return (
+            f"{self.__class__.__name__}("
+            f"matern={self.matern!r}, "
+            f"integral={self.integral!r}, "
+            f"reverse={self.reverse!r})"
+        )
+
 
 @linfunctls.LebesgueIntegral.__call__.register(  # pylint: disable=no-member
     UnivariateHalfIntegerMaternLebesgueIntegral

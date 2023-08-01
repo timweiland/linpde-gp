@@ -5,6 +5,7 @@ from ._arithmetic import (
     ScaledProcessVectorCrossCovariance,
     SumProcessVectorCrossCovariance,
 )
+from .linfunctls._difference import CovarianceFunction_Identity_Difference
 from .linfunctls._dirac import (
     CovarianceFunction_Dirac_Identity,
     CovarianceFunction_Identity_Dirac,
@@ -13,6 +14,7 @@ from .linfunctls._evaluation import (
     CovarianceFunction_Evaluation_Identity,
     CovarianceFunction_Identity_Evaluation,
 )
+from .linfunctls.integrals import UnivariateHalfIntegerMaternLebesgueIntegral
 
 
 @linfuncops.LinearFunctionOperator.__call__.register  # pylint: disable=no-member
@@ -85,3 +87,18 @@ def _(self, pv_crosscov: CovarianceFunction_Evaluation_Identity, /):
 @linfuncops.SelectOutput.__call__.register  # pylint: disable=no-member
 def _(self, stacked_pv_crosscov: crosscov.StackedProcessVectorCrossCovariance, /):
     return stacked_pv_crosscov.pv_crosscovs[self.idx]
+
+
+@linfuncops.diffops.PartialDerivative.__call__.register(
+    UnivariateHalfIntegerMaternLebesgueIntegral
+)
+def _(self, pv_crosscov: UnivariateHalfIntegerMaternLebesgueIntegral, /):
+    if self.order == 0:
+        return pv_crosscov
+    lower_order_pd = linfuncops.diffops.Derivative(self.order - 1)
+    return -1 * CovarianceFunction_Identity_Difference(
+        lower_order_pd(pv_crosscov.matern, argnum=1 if pv_crosscov.reverse else 0),
+        pv_crosscov.integral.domain[0],
+        pv_crosscov.integral.domain[1],
+        reverse=pv_crosscov.reverse,
+    )
