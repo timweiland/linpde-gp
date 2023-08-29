@@ -122,18 +122,23 @@ class Box(CartesianProduct):
             indexing="ij",
         )
 
-    def subdivide_binary(self) -> "tuple[Box, ...]":
+    def subdivide_binary(self, subdivision_axes=None) -> "tuple[Box, ...]":
         if self.dimension == 0:
             return []
         if self.dimension == 1:
+            if subdivision_axes == [False]:
+                return [self]
             return [
                 Box(((self.bounds[0][0], self.center[0]),)),
                 Box(((self.center[0], self.bounds[0][1]),)),
             ]
         first_bounds = self.bounds[0]
+        new_subdivision_axes = None if subdivision_axes is None else subdivision_axes[1:]
+        subvolumes = Box(self.bounds[1:]).subdivide_binary(new_subdivision_axes)
+        if subdivision_axes is not None and subdivision_axes[0] is False:
+            return [Box(np.concatenate(([first_bounds], vol.bounds))) for vol in subvolumes]
         bounds_A = np.array([[first_bounds[0], self.center[0]]])
         bounds_B = np.array([[self.center[0], first_bounds[1]]])
-        subvolumes = Box(self.bounds[1:]).subdivide_binary()
         return [
             Box(np.concatenate((bounds, vol.bounds)))
             for bounds in (bounds_A, bounds_B)
