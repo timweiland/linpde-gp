@@ -3,3 +3,4 @@ from ._box import Box, Interval
 from ._cartesian_product import CartesianProduct
 from ._domain import Domain
 from ._point import Point
+from ._vectorize import VectorizedDomain
