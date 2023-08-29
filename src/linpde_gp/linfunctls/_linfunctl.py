@@ -12,6 +12,8 @@ from linpde_gp import functions, linfuncops
 
 
 class LinearFunctional:
+    __array_priority__ = 1000
+    
     def __init__(
         self,
         input_shapes: tuple[ShapeLike, ShapeLike],
@@ -91,7 +93,8 @@ class LinearFunctional:
         return self + (-other)
 
     def __rmul__(self, other) -> LinearFunctional | Type[NotImplemented]:
-        if np.ndim(other) == 0:
+        other_arr = np.asarray(other)
+        if np.issubdtype(other_arr.dtype, np.number):
             from ._arithmetic import (  # pylint: disable=import-outside-toplevel
                 ScaledLinearFunctional,
             )

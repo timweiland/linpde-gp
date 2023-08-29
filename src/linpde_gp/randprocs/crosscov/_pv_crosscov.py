@@ -12,6 +12,8 @@ from probnum.typing import ArrayLike, ShapeLike, ShapeType
 
 
 class ProcessVectorCrossCovariance(abc.ABC):
+    __array_priority__ = 1000
+
     def __init__(
         self,
         randproc_input_shape: ShapeLike,
@@ -58,7 +60,7 @@ class ProcessVectorCrossCovariance(abc.ABC):
         return self._reverse
 
     def __call__(self, x: ArrayLike) -> np.ndarray:
-        x = np.asarray(x)
+        x = np.asanyarray(x)
 
         # Shape checking
         if x.shape[x.ndim - self.randproc_input_ndim :] != self.randproc_input_shape:
@@ -177,12 +179,13 @@ class ProcessVectorCrossCovariance(abc.ABC):
         return self + (-other)
 
     def __rmul__(self, other) -> ProcessVectorCrossCovariance | Type[NotImplemented]:
-        if np.ndim(other) == 0:
+        other_arr = np.asarray(other)
+        if np.issubdtype(other_arr.dtype, np.number):
             from ._arithmetic import (  # pylint: disable=import-outside-toplevel
                 ScaledProcessVectorCrossCovariance,
             )
 
-            return ScaledProcessVectorCrossCovariance(self, scalar=other)
+            return ScaledProcessVectorCrossCovariance(self, scalar=other_arr)
 
         return NotImplemented
 

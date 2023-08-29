@@ -48,6 +48,8 @@ class Covariance(abc.ABC):
         The shape of the random variable :code:`x1`.
     """
 
+    __array_priority__ = 1000
+
     def __init__(self, shape0: ShapeLike, shape1: ShapeLike) -> None:
         self._shape0 = pn.utils.as_shape(shape0)
         self._shape1 = pn.utils.as_shape(shape1)
@@ -176,7 +178,7 @@ class ArrayCovariance(Covariance):
 
     def __add__(self, other) -> Covariance | Type[NotImplemented]:
         if (
-            isinstance(other, ArrayCovariance)
+            isinstance(other, (ArrayCovariance, ScaledCovariance))
             and self.shape0 == other.shape0
             and self.shape1 == other.shape1
         ):
@@ -228,7 +230,7 @@ class LinearOperatorCovariance(Covariance):
 
     def __add__(self, other) -> LinearOperatorCovariance | Type[NotImplemented]:
         if (
-            isinstance(other, (ArrayCovariance, LinearOperatorCovariance))
+            isinstance(other, Covariance)
             and self.shape0 == other.shape0
             and self.shape1 == other.shape1
         ):
@@ -245,4 +247,78 @@ class LinearOperatorCovariance(Covariance):
             return LinearOperatorCovariance(
                 other * self.linop, self.shape0, self.shape1
             )
+        return NotImplemented
+
+
+class ScaledCovariance(Covariance):
+    def __init__(self, cov: Covariance, scalar: ArrayLike, reverse=True):
+        super().__init__(cov.shape0, cov.shape1)
+
+        self._cov = cov
+        self._scalar = np.asarray(scalar)
+        self._reverse = reverse
+
+    @property
+    def cov(self) -> Covariance:
+        return self._cov
+
+    @property
+    def scalar(self) -> np.ndarray:
+        return self._scalar
+
+    @property
+    def _broadcasted_scalar(self) -> np.ndarray:
+        if self.reverse:
+            return np.broadcast_to(self.scalar, self.shape1)
+        broadcasted = np.broadcast_to(self.scalar, self.shape0)
+        return broadcasted.reshape(broadcasted.shape + (1,) * self.ndim1)
+
+    @property
+    def reverse(self) -> bool:
+        return self._reverse
+
+    @functools.cached_property
+    def array(self) -> np.ndarray:
+        return self._broadcasted_scalar * self.cov.array
+
+    @property
+    def linop(self) -> pn.linops.LinearOperator:
+        if self.reverse:
+            return self.cov.linop @ pn.linops.Scaling(
+                self._broadcasted_scalar.reshape(-1, order="C")
+            )
+        return (
+            pn.linops.Scaling(self._broadcasted_scalar.reshape(-1, order="C"))
+            @ self.cov.linop
+        )
+
+    @property
+    def matrix(self) -> np.ndarray:
+        if self.reverse:
+            return self._broadcasted_scalar.reshape(-1, order="C") * self.cov.matrix
+        return self._broadcasted_scalar.reshape((-1, 1), order="C") * self.cov.matrix
+
+    def __neg__(self) -> LinearOperatorCovariance:
+        return -1.0 * self
+
+    def __add__(self, other) -> LinearOperatorCovariance | Type[NotImplemented]:
+        if not isinstance(other, Covariance):
+            return NotImplemented
+        if self.shape0 != other.shape0 or self.shape1 != other.shape1:
+            return NotImplemented
+        if isinstance(other, LinearOperatorCovariance):
+            return LinearOperatorCovariance(
+                self.linop + other.linop, self.shape0, self.shape1
+            )
+        return ArrayCovariance(self.array + other.array, self.shape0, self.shape1)
+
+    def __sub__(self, other) -> LinearOperatorCovariance | Type[NotImplemented]:
+        return self + (-other)
+
+    def __rmul__(self, other) -> LinearOperatorCovariance | Type[NotImplemented]:
+        other_arr = np.asarray(other)
+        try:
+            return ScaledCovariance(self.cov, self.scalar * other_arr, self.reverse)
+        except ValueError:
+            pass
         return NotImplemented

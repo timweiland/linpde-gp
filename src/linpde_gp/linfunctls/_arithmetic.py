@@ -3,16 +3,17 @@ import operator
 
 import numpy as np
 import probnum as pn
-from probnum.typing import ScalarLike, ScalarType
+from probnum.typing import ArrayLike
 
 from linpde_gp import linfuncops
+from linpde_gp.randvars import Covariance, ScaledCovariance
 
 from . import _linfunctl
 
 
 class ScaledLinearFunctional(_linfunctl.LinearFunctional):
     def __init__(
-        self, linfunctl: _linfunctl.LinearFunctional, scalar: ScalarLike
+        self, linfunctl: _linfunctl.LinearFunctional, scalar: ArrayLike
     ) -> None:
         self._linfunctl = linfunctl
 
@@ -21,22 +22,33 @@ class ScaledLinearFunctional(_linfunctl.LinearFunctional):
             output_shape=self._linfunctl.output_shape,
         )
 
-        if not np.ndim(scalar) == 0:
-            raise ValueError()
+        self._scalar = np.asarray(scalar, dtype=np.float64)
 
-        self._scalar = np.asarray(scalar, dtype=np.double)
+        try:
+            np.broadcast_to(self._scalar, self._linfunctl.output_shape)
+        except ValueError:
+            raise ValueError(
+                f"Cannot broadcast scalar {self._scalar} to output shape "
+                f"{self._linfunctl.output_shape}."
+            )
 
     @property
     def linfunctl(self) -> _linfunctl.LinearFunctional:
         return self._linfunctl
 
     @property
-    def scalar(self) -> ScalarType:
+    def scalar(self) -> np.ndarray:
         return self._scalar
 
     @functools.singledispatchmethod
     def __call__(self, f, /, **kwargs):
-        return self._scalar * self._linfunctl(f, **kwargs)
+        res = self._linfunctl(f, **kwargs)
+        if isinstance(res, Covariance):
+            from linpde_gp.randprocs.crosscov import ProcessVectorCrossCovariance
+
+            assert isinstance(f, ProcessVectorCrossCovariance)
+            return ScaledCovariance(res, self._scalar, reverse=f.reverse)
+        return self._scalar * res
 
     # TODO: Only need until GPs can be scaled
     @__call__.register
@@ -46,13 +58,14 @@ class ScaledLinearFunctional(_linfunctl.LinearFunctional):
         return super().__call__(gp, **kwargs)
 
     def __rmul__(self, other) -> _linfunctl.LinearFunctional:
-        if np.ndim(other) == 0:
+        try:
+            new_scalar = np.asarray(other) * self._scalar
             return ScaledLinearFunctional(
                 linfunctl=self._linfunctl,
-                scalar=np.asarray(other) * self._scalar,
+                scalar=new_scalar,
             )
-
-        return super().__rmul__(other)
+        except ValueError:
+            return super().__rmul__(other)
 
     def __repr__(self) -> str:
         return f"{self._scalar} * {self._linfunctl}"

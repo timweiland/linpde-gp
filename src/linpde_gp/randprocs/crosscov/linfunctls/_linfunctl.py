@@ -6,7 +6,12 @@ import numpy as np
 import probnum as pn
 
 from linpde_gp.linfunctls import LinearFunctional
-from linpde_gp.randvars import ArrayCovariance, Covariance
+from linpde_gp.randvars import (
+    ArrayCovariance,
+    Covariance,
+    ScaledCovariance,
+    LinearOperatorCovariance,
+)
 
 from .._arithmetic import (
     LinOpProcessVectorCrossCovariance,
@@ -23,7 +28,13 @@ from ._evaluation import (
 
 @LinearFunctional.__call__.register  # pylint: disable=no-member
 def _(self, pv_crosscov: ScaledProcessVectorCrossCovariance, /) -> Covariance:
-    return pv_crosscov.scalar * self(pv_crosscov.pv_crosscov)
+    return ScaledCovariance(
+        self(pv_crosscov.pv_crosscov),
+        pv_crosscov.scalar,
+        reverse=not pv_crosscov.reverse
+        if pv_crosscov.scale_randvar
+        else pv_crosscov.reverse,
+    )
 
 
 @LinearFunctional.__call__.register  # pylint: disable=no-member
