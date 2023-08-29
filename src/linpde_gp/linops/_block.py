@@ -290,3 +290,6 @@ class BlockMatrix2x2(pn.linops.LinearOperator):
             # special case.
             return self.A.det() * self.schur.det()
         return super()._det()
+
+    def diagonal(self) -> np.ndarray:
+        return np.concatenate((self.A.diagonal(), self.D.diagonal()))
