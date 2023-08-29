@@ -7,6 +7,7 @@ from . import (
     functions,
     linfuncops,
     linfunctls,
+    methods,
     randprocs,
     problems,
 )
