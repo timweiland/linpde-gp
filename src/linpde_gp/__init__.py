@@ -1,5 +1,6 @@
 # isort: off
 from . import (
+    benchmarking,
     linops,
     randvars,
     domains,
