@@ -8,6 +8,8 @@ import numpy as np
 import probnum as pn
 from probnum.typing import ArrayLike, ScalarType
 
+from linpde_gp.randprocs.covfuncs import TensorProductGrid
+
 from . import _pv_crosscov
 
 
@@ -130,7 +132,11 @@ class SumProcessVectorCrossCovariance(_pv_crosscov.ProcessVectorCrossCovariance)
 class TensorProductProcessVectorCrossCovariance(
     _pv_crosscov.ProcessVectorCrossCovariance
 ):
-    def __init__(self, *pv_crosscovs: _pv_crosscov.ProcessVectorCrossCovariance):
+    def __init__(
+        self,
+        *pv_crosscovs: _pv_crosscov.ProcessVectorCrossCovariance,
+        grid_factorized=False,
+    ):
         self._pv_crosscovs = tuple(pv_crosscovs)
 
         assert all(
@@ -139,32 +145,82 @@ class TensorProductProcessVectorCrossCovariance(
                 pv_crosscov.randproc_output_shape
                 == pv_crosscovs[0].randproc_output_shape
             )
-            and pv_crosscov.randvar_shape == pv_crosscovs[0].randvar_shape
             and pv_crosscov.reverse == pv_crosscovs[0].reverse
             for pv_crosscov in self._pv_crosscovs
         )
 
+        if grid_factorized:
+            assert all(
+                pv_crosscov.randvar_ndim == pv_crosscovs[0].randvar_ndim
+                for pv_crosscov in self._pv_crosscovs
+            )
+            randvar_shape = functools.reduce(
+                operator.add,
+                tuple(pv_crosscov.randvar_shape for pv_crosscov in self._pv_crosscovs),
+            )
+        else:
+            assert all(
+                pv_crosscov.randvar_shape == pv_crosscovs[0].randvar_shape
+                for pv_crosscov in self._pv_crosscovs
+            )
+            randvar_shape = self._pv_crosscovs[0].randvar_shape
+
         super().__init__(
             randproc_input_shape=(len(self._pv_crosscovs),),
             randproc_output_shape=self._pv_crosscovs[0].randproc_output_shape,
-            randvar_shape=self._pv_crosscovs[0].randvar_shape,
+            randvar_shape=randvar_shape,
             reverse=self._pv_crosscovs[0].reverse,
         )
+
+        self._is_grid_factorized = grid_factorized
+
+    @property
+    def is_grid_factorized(self) -> bool:
+        return self._is_grid_factorized
 
     @property
     def pv_crosscovs(self) -> Sequence[_pv_crosscov.ProcessVectorCrossCovariance]:
         return self._pv_crosscovs
 
     def _evaluate(self, x: np.ndarray) -> np.ndarray:
+        if self.is_grid_factorized and not isinstance(x, TensorProductGrid):
+            raise NotImplementedError()
+        if self.is_grid_factorized and isinstance(x, TensorProductGrid):
+            res = functools.reduce(
+                np.kron,
+                (
+                    pv_crosscov(x.factors[dim])
+                    for dim, pv_crosscov in enumerate(self._pv_crosscovs)
+                ),
+            )
+            x_batch_shape = x.shape[: x.ndim - self.randproc_input_ndim]
+            if self.reverse:
+                return res.reshape(self.randvar_shape + x_batch_shape + self.randproc_output_shape)
+            return res.reshape(x_batch_shape + self.randproc_output_shape + self.randvar_shape)
         return prod(
             pv_crosscov(x[..., dim])
             for dim, pv_crosscov in enumerate(self._pv_crosscovs)
         )
 
     def _evaluate_jax(self, x: jnp.ndarray) -> jnp.ndarray:
+        if self.is_grid_factorized:
+            raise NotImplementedError()
         return prod(
             pv_crosscov.jax(x[..., dim])
             for dim, pv_crosscov in enumerate(self._pv_crosscovs)
+        )
+
+    def _evaluate_linop(self, x: np.ndarray) -> pn.linops.LinearOperator:
+        if not (self.is_grid_factorized and isinstance(x, TensorProductGrid)):
+            raise NotImplementedError()
+        return functools.reduce(
+            pn.linops.Kronecker,
+            (
+                pv_crosscov.evaluate_linop(
+                    x.factors[dim]
+                )  # pylint: disable=protected-access
+                for dim, pv_crosscov in enumerate(self._pv_crosscovs)
+            ),
         )
 
     def __repr__(self) -> str:
