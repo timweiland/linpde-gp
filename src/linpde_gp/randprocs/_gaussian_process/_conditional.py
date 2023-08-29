@@ -21,6 +21,8 @@ from linpde_gp.randprocs.crosscov import ProcessVectorCrossCovariance
 from linpde_gp.randvars import Covariance, LinearOperatorCovariance
 from linpde_gp.typing import RandomVariableLike
 
+from timeit import default_timer as timer
+
 
 class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
     @classmethod
@@ -75,12 +77,14 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
         self._gram_matrix = gram_matrix
 
         self._representer_weights = representer_weights
+        if representer_weights is None:
+            self._representer_weights = self._compute_representer_weights()
 
         super().__init__(
             mean=ConditionalGaussianProcess.Mean(
                 prior_mean=self._prior.mean,
                 kLas=self._kLas,
-                representer_weights=self.representer_weights,
+                representer_weights=self._representer_weights,
             ),
             cov=ConditionalGaussianProcess.CovarianceFunction(
                 prior_covfunc=self._prior.cov,
@@ -93,19 +97,30 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
     def gram(self) -> pn.linops.LinearOperator:
         return self._gram_matrix
 
-    @property
-    def representer_weights(self) -> np.ndarray:
-        if self._representer_weights is None:
-            y = np.concatenate(
+    def _compute_representer_weights(self) -> np.ndarray:
+        y = np.concatenate(
                 [
-                    (Y - L(self._prior.mean))
+                    (Y - L(self._prior.mean).reshape(-1, order="C"))
                     if b is None
-                    else (Y - L(self._prior.mean) - b.mean.reshape(-1, order="C"))
+                    else (
+                        Y
+                        - L(self._prior.mean).reshape(-1, order="C")
+                        - b.mean.reshape(-1, order="C")
+                    )
                     for Y, L, b in zip(self._Ys, self._Ls, self._bs)
                 ],
                 axis=-1,
             )
-            self._representer_weights = self.gram.solve(y)
+        from scipy.linalg import cho_factor, cho_solve
+        gram_dense = self.gram.todense()
+        res = cho_solve(cho_factor(gram_dense), y)
+
+        return res
+
+    @property
+    def representer_weights(self) -> np.ndarray:
+        if self._representer_weights is None:
+            self._representer_weights = self._compute_representer_weights()
 
         return self._representer_weights
 
@@ -135,6 +150,13 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
         ) -> ConditionalGaussianProcess.PriorPredictiveCrossCovariance:
             return ConditionalGaussianProcess.PriorPredictiveCrossCovariance(
                 self._kLas + (kLa,)
+            )
+        
+        def replace_last(
+            self, kLa: ProcessVectorCrossCovariance
+        ) -> ConditionalGaussianProcess.PriorPredictiveCrossCovariance:
+            return ConditionalGaussianProcess.PriorPredictiveCrossCovariance(
+                self._kLas[:-1] + (kLa,)
             )
 
         def _evaluate(self, x: np.ndarray) -> np.ndarray:
@@ -273,6 +295,9 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
         *,
         L: LinearFunctional | LinearFunctionOperator | None = None,
         b: RandomVariableLike | None = None,
+        compute_representer_weights: bool = True,
+        noise: float = 1e-12,
+        crosscov=None,
     ):
         Y, L, b, kLa, pred_mean, gram = self._preprocess_observations(
             prior=self._prior,
@@ -280,10 +305,17 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
             X=X,
             L=L,
             b=b,
+            noise=noise,
         )
 
+        # start_time = timer()
+        if crosscov is None:
         # Compute lower-left block in the new covariance matrix
-        gram_L_La_prev_blocks = L(self._kLas).linop
+            gram_L_La_prev_blocks = L(self._kLas).linop
+        else:
+            gram_L_La_prev_blocks = crosscov
+        # end_time = timer()
+        # print(f"Time for crosscov: {end_time - start_time}")
 
         # Update the Cholesky decomposition of the previous covariance matrix and the
         # representer weights
@@ -295,9 +327,16 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
             gram,
             is_spd=True,
         )
-        representer_weights = gram_matrix.schur_update(
-            self.representer_weights, Y - pred_mean
-        )
+        # if compute_representer_weights:
+        #     start_time = timer()
+        #     # representer_weights = gram_matrix.schur_update(
+        #     #     self.representer_weights, Y - pred_mean
+        #     # )
+        #     end_time = timer()
+        #     print(f"Time for schur_update: {end_time - start_time}")
+        # else:
+        #     representer_weights = None
+        representer_weights = None
 
         return ConditionalGaussianProcess(
             prior=self._prior,
@@ -318,6 +357,7 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
         X: ArrayLike | None,
         L: LinearFunctional | LinearFunctionOperator | None,
         b: RandomVariableLike | None,
+        noise: float = 1e-12,
     ) -> tuple[
         np.ndarray,
         LinearFunctional,
@@ -408,6 +448,10 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
         if b is not None:
             pred_mean = pred_mean + np.asarray(b.mean).reshape(-1, order="C")
             gram = gram + pn.linops.aslinop(b.cov)
+
+        if noise > 0:
+            # Small nugget
+            gram = gram + noise * pn.linops.Identity(gram.shape)
 
         gram.is_symmetric = True
         gram.is_positive_definite = True
