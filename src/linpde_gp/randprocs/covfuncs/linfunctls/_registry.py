@@ -155,14 +155,14 @@ def _(self, k: pn_covfuncs.CovarianceFunction, /, *, argnum: int = 0):
 ########################################################################################
 
 
-@linfunctls.LebesgueIntegral.__call__.register  # pylint: disable=no-member
+@linfunctls.VectorizedLebesgueIntegral.__call__.register  # pylint: disable=no-member
 def covfunc_lebesgue_integral(
     self, k: pn_covfuncs.CovarianceFunction, /, *, argnum: int = 0
 ):
     validate_covfunc_transformation(self, k, argnum)
 
     try:
-        return super(linfunctls.LebesgueIntegral, self).__call__(k, argnum=argnum)
+        return super(linfunctls.VectorizedLebesgueIntegral, self).__call__(k, argnum=argnum)
     except NotImplementedError:
         from ...crosscov.linfunctls.integrals import (  # pylint: disable=import-outside-toplevel
             CovarianceFunction_Identity_LebesgueIntegral,
@@ -173,7 +173,7 @@ def covfunc_lebesgue_integral(
         )
 
 
-@linfunctls.LebesgueIntegral.__call__.register  # pylint: disable=no-member
+@linfunctls.VectorizedLebesgueIntegral.__call__.register  # pylint: disable=no-member
 def _(self, k: pn_covfuncs.Matern, /, *, argnum: int = 0):
     validate_covfunc_transformation(self, k, argnum)
 
@@ -191,7 +191,7 @@ def _(self, k: pn_covfuncs.Matern, /, *, argnum: int = 0):
     return covfunc_lebesgue_integral(self, k, argnum=argnum)
 
 
-@linfunctls.LebesgueIntegral.__call__.register  # pylint: disable=no-member
+@linfunctls.VectorizedLebesgueIntegral.__call__.register  # pylint: disable=no-member
 def _(self, k: covfuncs.TensorProduct, /, *, argnum: int = 0):
     if argnum not in (0, 1):
         raise ValueError("`argnum` must either be 0 or 1.")
@@ -207,7 +207,7 @@ def _(self, k: covfuncs.TensorProduct, /, *, argnum: int = 0):
     )
 
 
-@linfunctls.LebesgueIntegral.__call__.register(  # pylint: disable=no-member
+@linfunctls.VectorizedLebesgueIntegral.__call__.register(  # pylint: disable=no-member
     covfuncs.linfuncops.diffops.HalfIntegerMatern_Identity_DirectionalDerivative
 )
 def _(
@@ -217,7 +217,7 @@ def _(
     *,
     argnum: int = 0,
 ):
-    if not isinstance(self.domain, domains.Interval):
+    if self.domains.common_type is not domains.Interval:
         raise NotImplementedError()
 
     from ...crosscov.linfunctls import CovarianceFunction_Identity_Difference
@@ -226,19 +226,19 @@ def _(
     if covfunc.reverse != integral_reverse:
         return -1 * CovarianceFunction_Identity_Difference(
             covfunc.matern,
-            self.domain[0],
-            self.domain[1],
+            self.domains.pure_array[..., 0],
+            self.domains.pure_array[..., 1],
             reverse=integral_reverse,
         )
     return CovarianceFunction_Identity_Difference(
         covfunc.matern,
-        self.domain[0],
-        self.domain[1],
+        self.domains.pure_array[..., 0],
+        self.domains.pure_array[..., 1],
         reverse=integral_reverse,
     )
 
 
-@linfunctls.LebesgueIntegral.__call__.register(  # pylint: disable=no-member
+@linfunctls.VectorizedLebesgueIntegral.__call__.register(  # pylint: disable=no-member
     covfuncs.linfuncops.diffops.UnivariateHalfIntegerMatern_Identity_WeightedLaplacian
 )
 def _(
@@ -248,7 +248,7 @@ def _(
     *,
     argnum: int = 0,
 ):
-    if not isinstance(self.domain, domains.Interval):
+    if self.domains.common_type is not domains.Interval:
         raise NotImplementedError()
 
     from ...crosscov.linfunctls import CovarianceFunction_Identity_Difference
@@ -258,14 +258,14 @@ def _(
     if covfunc.reverse != integral_reverse:
         return -1 * CovarianceFunction_Identity_Difference(
             D(covfunc.matern, argnum=1 - argnum),
-            self.domain[0],
-            self.domain[1],
+            self.domains.pure_array[..., 0],
+            self.domains.pure_array[..., 1],
             reverse=integral_reverse,
         )
     return CovarianceFunction_Identity_Difference(
         D(covfunc.matern, argnum=argnum),
-        self.domain[0],
-        self.domain[1],
+        self.domains.pure_array[..., 0],
+        self.domains.pure_array[..., 1],
         reverse=integral_reverse,
     )
 
@@ -284,7 +284,7 @@ def reduce_derivative_order(
     return D1(D2(k, argnum=1), argnum=0)
 
 
-@linfunctls.LebesgueIntegral.__call__.register(  # pylint: disable=no-member
+@linfunctls.VectorizedLebesgueIntegral.__call__.register(  # pylint: disable=no-member
     covfuncs.linfuncops.diffops.UnivariateHalfIntegerMatern_DirectionalDerivative_DirectionalDerivative
 )
 def _(
@@ -294,7 +294,7 @@ def _(
     *,
     argnum: int = 0,
 ):
-    if not isinstance(self.domain, domains.Interval):
+    if self.domains.common_type is not domains.Interval:
         raise NotImplementedError()
 
     from ...crosscov.linfunctls import CovarianceFunction_Identity_Difference
@@ -304,13 +304,13 @@ def _(
     D2 = Derivative(1)
     return CovarianceFunction_Identity_Difference(
         reduce_derivative_order(covfunc.matern, D1, D2, argnum),
-        self.domain[0],
-        self.domain[1],
+        self.domains.pure_array[..., 0],
+        self.domains.pure_array[..., 1],
         reverse=integral_reverse,
     )
 
 
-@linfunctls.LebesgueIntegral.__call__.register(  # pylint: disable=no-member
+@linfunctls.VectorizedLebesgueIntegral.__call__.register(  # pylint: disable=no-member
     covfuncs.linfuncops.diffops.UnivariateHalfIntegerMatern_DirectionalDerivative_WeightedLaplacian
 )
 def _(
@@ -320,7 +320,7 @@ def _(
     *,
     argnum: int = 0,
 ):
-    if not isinstance(self.domain, domains.Interval):
+    if self.domains.common_type is not domains.Interval:
         raise NotImplementedError()
 
     from ...crosscov.linfunctls import CovarianceFunction_Identity_Difference
@@ -334,13 +334,13 @@ def _(
         D2 = Derivative(2)
     return CovarianceFunction_Identity_Difference(
         reduce_derivative_order(covfunc.matern, D1, D2, argnum),
-        self.domain[0],
-        self.domain[1],
+        self.domains.pure_array[..., 0],
+        self.domains.pure_array[..., 1],
         reverse=integral_reverse,
     )
 
 
-@linfunctls.LebesgueIntegral.__call__.register(  # pylint: disable=no-member
+@linfunctls.VectorizedLebesgueIntegral.__call__.register(  # pylint: disable=no-member
     covfuncs.linfuncops.diffops.UnivariateHalfIntegerMatern_WeightedLaplacian_WeightedLaplacian
 )
 def _(
@@ -350,7 +350,7 @@ def _(
     *,
     argnum: int = 0,
 ):
-    if not isinstance(self.domain, domains.Interval):
+    if self.domains.common_type is not domains.Interval:
         raise NotImplementedError()
 
     from ...crosscov.linfunctls import CovarianceFunction_Identity_Difference
@@ -360,8 +360,8 @@ def _(
     D2 = Derivative(2)
     return CovarianceFunction_Identity_Difference(
         reduce_derivative_order(covfunc.matern, D1, D2, argnum),
-        self.domain[0],
-        self.domain[1],
+        self.domains.pure_array[..., 0],
+        self.domains.pure_array[..., 1],
         reverse=integral_reverse,
     )
 

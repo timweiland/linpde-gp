@@ -1,9 +1,12 @@
 from jax import numpy as jnp
 import numpy as np
+import probnum as pn
 
 from linpde_gp import functions, linfunctls
 from linpde_gp.randprocs import covfuncs
-from linpde_gp.randvars import ArrayCovariance, Covariance
+from linpde_gp.randvars import Covariance
+
+from pykeops.numpy import LazyTensor, Pm
 
 from ._radial_lebesgue import (
     UnivariateRadialCovarianceFunctionLebesgueIntegral,
@@ -100,6 +103,17 @@ class HalfIntegerMaternRadialSecondAntiderivative(functions.JaxFunction):
             + self._C_1 * r
             + self._C_2
         )
+    
+    def _evaluate_keops(
+        self, r: LazyTensor
+    ) -> LazyTensor:
+        return (
+            self._inv_2nu
+            * LazyTensor.exp(-self._sqrt_2nu * r)
+            * self._poly._evaluate_keops(self._sqrt_2nu * r)
+            + self._C_1 * r
+            + self._C_2
+        )
 
 
 class UnivariateHalfIntegerMaternLebesgueIntegral(
@@ -134,16 +148,22 @@ class UnivariateHalfIntegerMaternLebesgueIntegral(
         )
 
 
-@linfunctls.LebesgueIntegral.__call__.register(  # pylint: disable=no-member
+@linfunctls.VectorizedLebesgueIntegral.__call__.register(  # pylint: disable=no-member
     UnivariateHalfIntegerMaternLebesgueIntegral
 )
 def _(self, kL_or_Lk: UnivariateHalfIntegerMaternLebesgueIntegral, /) -> Covariance:
-    res = univariate_radial_covfunc_lebesgue_integral_lebesgue_integral(
+    if kL_or_Lk.reverse:  # Lk
+        integral0 = kL_or_Lk.integral
+        integral1 = self
+    else:  # kL'
+        integral0 = self
+        integral1 = kL_or_Lk.integral
+
+    return univariate_radial_covfunc_lebesgue_integral_lebesgue_integral(
         kL_or_Lk.matern,
-        self,
-        kL_or_Lk.integral,
+        integral0,
+        integral1,
         radial_antideriv_2=HalfIntegerMaternRadialSecondAntiderivative(
             kL_or_Lk.matern.p
         ),
     )
-    return ArrayCovariance.from_scalar(res)

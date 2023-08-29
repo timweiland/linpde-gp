@@ -98,7 +98,7 @@ def _(self, pv_crosscov: UnivariateHalfIntegerMaternLebesgueIntegral, /):
     lower_order_pd = linfuncops.diffops.Derivative(self.order - 1)
     return -1 * CovarianceFunction_Identity_Difference(
         lower_order_pd(pv_crosscov.matern, argnum=1 if pv_crosscov.reverse else 0),
-        pv_crosscov.integral.domain[0],
-        pv_crosscov.integral.domain[1],
+        pv_crosscov.integral.domains.pure_array[..., 0],
+        pv_crosscov.integral.domains.pure_array[..., 1],
         reverse=pv_crosscov.reverse,
     )

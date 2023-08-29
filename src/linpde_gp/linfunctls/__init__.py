@@ -7,5 +7,5 @@ from ._arithmetic import (
 from ._dirac import DiracFunctional
 from ._evaluation import _EvaluationFunctional
 from ._finite_volume import FiniteVolumeFunctional
-from ._integrals import LebesgueIntegral
+from ._integrals import LebesgueIntegral, VectorizedLebesgueIntegral
 from ._linfunctl import LinearFunctional

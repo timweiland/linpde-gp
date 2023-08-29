@@ -2,33 +2,33 @@ import functools
 
 import numpy as np
 import probnum as pn
-from probnum.typing import ShapeLike
-
 from linpde_gp import domains, functions
+from linpde_gp.domains import VectorizedDomain
 from linpde_gp.typing import DomainLike
+from probnum.typing import ArrayLike, ShapeLike
 
 from . import _linfunctl
 
 
-class LebesgueIntegral(_linfunctl.LinearFunctional):
+class VectorizedLebesgueIntegral(_linfunctl.LinearFunctional):
     def __init__(
         self,
-        input_domain: DomainLike,
+        input_domains: ArrayLike | VectorizedDomain,
         input_codomain_shape: ShapeLike = (),
-    ) -> None:
-        self._domain = domains.asdomain(input_domain)
-
-        if not isinstance(self._domain, (domains.Interval, domains.Box)):
-            raise TypeError("TODO")
+    ):
+        if isinstance(input_domains, VectorizedDomain):
+            self._domains = input_domains
+        else:
+            self._domains = VectorizedDomain(input_domains)
 
         super().__init__(
-            input_shapes=(self._domain.shape, input_codomain_shape),
-            output_shape=input_codomain_shape,
+            input_shapes=(self._domains.input_shape, input_codomain_shape),
+            output_shape=self._domains.shape + input_codomain_shape,
         )
 
     @property
-    def domain(self) -> domains.Domain:
-        return self._domain
+    def domains(self) -> VectorizedDomain:
+        return self._domains
 
     @functools.singledispatchmethod
     def __call__(self, f, /, **kwargs):
@@ -41,25 +41,35 @@ class LebesgueIntegral(_linfunctl.LinearFunctional):
         except NotImplementedError as err:
             import scipy.integrate  # pylint: disable=import-outside-toplevel
 
-            if self._output_shape != ():
+            if self.input_codomain_shape != ():
                 raise NotImplementedError from err
 
-            match self._domain:
-                case domains.Interval():
-                    return scipy.integrate.quad(
-                        f, a=self._domain[0], b=self._domain[1]
-                    )[0]
-                case domains.Box():
-                    return scipy.integrate.nquad(
-                        f,
-                        ranges=[tuple(interval) for interval in self._domain],
-                    )[0]
+            @np.vectorize
+            def integrate(domain):
+                match domain:
+                    case domains.Interval():
+                        return scipy.integrate.quad(f, a=domain[0], b=domain[1])[0]
+                    case domains.Box():
+                        return scipy.integrate.nquad(
+                            f,
+                            ranges=[tuple(interval) for interval in domain],
+                        )[0]
+                raise NotImplementedError from err
 
-            raise NotImplementedError from err
+            return integrate(self._domains.array)
 
     @__call__.register
     def _(self, f: functions.Constant, /) -> np.ndarray:
-        return f.value * self._domain.volume
+        @np.vectorize
+        def integrate(domain):
+            return f.value * domain.volume
+
+        return integrate(self._domains.array)
 
     def __repr__(self) -> str:
-        return f"∫_{{{self._domain}}}"
+        return f"∫_{{{self._domains.array}}}"
+
+
+class LebesgueIntegral(VectorizedLebesgueIntegral):
+    def __init__(self, input_domain: DomainLike, input_codomain_shape: ShapeLike = ()):
+        super().__init__(domains.asdomain(input_domain), input_codomain_shape)

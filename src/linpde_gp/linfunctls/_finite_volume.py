@@ -1,16 +1,20 @@
 import functools
 
-from linpde_gp.domains import Box, Interval
 from linpde_gp.linfuncops.diffops import LinearDifferentialOperator
+from probnum.typing import ArrayLike
 
 from ._arithmetic import CompositeLinearFunctional
-from ._integrals import LebesgueIntegral
+from ._integrals import VectorizedLebesgueIntegral
 
 
 class FiniteVolumeFunctional(CompositeLinearFunctional):
-    def __init__(self, volume: Box | Interval, diffop: LinearDifferentialOperator):
-        self._volume = volume
-        self._integral = LebesgueIntegral(volume)
+    def __init__(
+        self, volumes: ArrayLike, diffop: LinearDifferentialOperator, normalize=False
+    ):
+        self._volumes = volumes
+        self._integral = VectorizedLebesgueIntegral(volumes)
+        if normalize:
+            self._integral = (1.0 / self._integral.domains.volume) * self._integral
         self._diffop = diffop
 
         super().__init__(
@@ -19,9 +23,19 @@ class FiniteVolumeFunctional(CompositeLinearFunctional):
             linfuncop=self._diffop,
         )
 
+        self._normalize = normalize
+
     @property
-    def volume(self) -> Box | Interval:
-        return self._volume
+    def volumes(self) -> ArrayLike:
+        return self._volumes
+
+    @property
+    def normalize(self) -> bool:
+        return self._normalize
+
+    @property
+    def integral(self) -> VectorizedLebesgueIntegral:
+        return self._integral
 
     @property
     def diffop(self) -> LinearDifferentialOperator:
