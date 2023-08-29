@@ -224,6 +224,22 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
             k_xx = self._prior_covfunc(x0, x1)
             kLas_x0 = self._kLas(x0)
             kLas_x1 = self._kLas(x1) if x1 is not None else kLas_x0
+
+            x0_batch_ndim = x0.ndim - self._prior_covfunc.input_ndim
+            x1_batch_ndim = (
+                x1.ndim - self._prior_covfunc.input_ndim
+                if x1 is not None
+                else x0_batch_ndim
+            )
+            output_ndim_0 = self._prior_covfunc.output_ndim_0
+            output_ndim_1 = self._prior_covfunc.output_ndim_1
+            kLas_x0 = np.expand_dims(
+                kLas_x0,
+                axis=tuple(x0_batch_ndim + output_ndim_0 + np.arange(output_ndim_1)),
+            )
+            kLas_x1 = np.expand_dims(
+                kLas_x1, axis=tuple(x1_batch_ndim + np.arange(output_ndim_0))
+            )
             cov_update = (
                 kLas_x0[..., None, :] @ (self._gram_matrix.solve(kLas_x1[..., None]))
             )[..., 0, 0]
