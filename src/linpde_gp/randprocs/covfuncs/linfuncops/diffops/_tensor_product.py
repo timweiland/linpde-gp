@@ -140,17 +140,5 @@ class TensorProduct_LinDiffOp_LinDiffOp(JaxSumCovarianceFunction[TensorProduct])
     def linop(
         self, x0: ArrayLike, x1: Optional[ArrayLike] = None
     ) -> pn.linops.LinearOperator:
-        # Use Kronecker-based linop if possible
-        if isinstance(x0, TensorProductGrid) and (
-            x1 is None or isinstance(x1, TensorProductGrid)
-        ):
-            if isinstance(x1, TensorProductGrid):
-                x1_factors = x0.factors
-            else:
-                x1_factors = [None for _ in x0.factors]
-            return self._compute_res(
-                lambda k, idx: k.linop(x0.factors[idx[0]], x1_factors[idx[0]]),
-                res_zero_value=0,
-                reduction_operator=pn.linops.Kronecker,
-            )
+        # Fallback to parent implementation (sum of TensorProduct)
         return super().linop(x0, x1)
