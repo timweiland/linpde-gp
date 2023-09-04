@@ -27,10 +27,13 @@ class ScaledLinearFunctional(_linfunctl.LinearFunctional):
         try:
             np.broadcast_to(self._scalar, self._linfunctl.output_shape)
         except ValueError:
-            raise ValueError(
-                f"Cannot broadcast scalar {self._scalar} to output shape "
-                f"{self._linfunctl.output_shape}."
-            )
+            if self._scalar.size == self._linfunctl.output_size:
+                self._scalar = self._scalar.reshape(self._linfunctl.output_shape)
+            else:
+                raise ValueError(
+                    f"Cannot broadcast scalar {self._scalar} to output shape "
+                    f"{self._linfunctl.output_shape}."
+                )
 
     @property
     def linfunctl(self) -> _linfunctl.LinearFunctional:
