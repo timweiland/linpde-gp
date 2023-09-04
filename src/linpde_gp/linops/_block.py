@@ -211,11 +211,23 @@ class BlockMatrix2x2(pn.linops.LinearOperator):
 
     def _matmul(self, x: np.ndarray) -> np.ndarray:
         x0, x1 = self._split_input(x, axis=-2)
+        if not np.any(x0):
+            A_x0 = pn.linops.Zero(self.A.shape, self.A.dtype) @ x0
+            C_x0 = pn.linops.Zero(self.C.shape, self.C.dtype) @ x0
+        else:
+            A_x0 = self.A @ x0
+            C_x0 = self.C @ x0
+        if not np.any(x1):
+            B_x1 = pn.linops.Zero(self.B.shape, self.B.dtype) @ x1
+            D_x1 = pn.linops.Zero(self.D.shape, self.D.dtype) @ x1
+        else:
+            B_x1 = self.B @ x1
+            D_x1 = self.D @ x1
 
         return np.concatenate(
             (
-                self.A @ x0 + self.B @ x1,
-                self.C @ x0 + self.D @ x1,
+                A_x0 + B_x1,
+                C_x0 + D_x1,
             ),
             axis=-2,
         )
