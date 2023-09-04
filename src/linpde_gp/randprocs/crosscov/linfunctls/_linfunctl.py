@@ -61,13 +61,15 @@ def _(self, pv_crosscov: LinOpProcessVectorCrossCovariance, /) -> Covariance:
 @LinearFunctional.__call__.register(Zero)  # pylint: disable=no-member
 def _(self: LinearFunctional, pv_crosscov: Zero, /) -> Covariance:
     if pv_crosscov.reverse:
-        shape = pv_crosscov.randvar_shape + self.output_shape
-        return ArrayCovariance(
-            np.zeros(shape), pv_crosscov.randvar_shape, self.output_shape
+        return LinearOperatorCovariance(
+            pn.linops.Zero((pv_crosscov.randvar_size, self.output_size)),
+            pv_crosscov.randvar_shape,
+            self.output_shape,
         )
-    shape = self.output_shape + pv_crosscov.randvar_shape
-    return ArrayCovariance(
-        np.zeros(shape), self.output_shape, pv_crosscov.randvar_shape
+    return LinearOperatorCovariance(
+        pn.linops.Zero((self.output_size, pv_crosscov.randvar_size)),
+        self.output_shape,
+        pv_crosscov.randvar_shape,
     )
 
 
