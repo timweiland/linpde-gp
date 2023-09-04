@@ -310,7 +310,7 @@ class ScaledCovariance(Covariance):
             return LinearOperatorCovariance(
                 self.linop + other.linop, self.shape0, self.shape1
             )
-        return ArrayCovariance(self.array + other.array, self.shape0, self.shape1)
+        return LinearOperatorCovariance(self.linop + other.linop, self.shape0, self.shape1)
 
     def __sub__(self, other) -> LinearOperatorCovariance | Type[NotImplemented]:
         return self + (-other)
