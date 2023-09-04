@@ -1,18 +1,25 @@
 from typing import Optional
-from jax import numpy as jnp
-from ._gp_solver import GPInferenceParams
-import numpy as np
-from scipy.linalg import cho_factor, cho_solve
 
-from linpde_gp.linops import BlockMatrix2x2
+import numpy as np
+from jax import numpy as jnp
+from linpde_gp.linfunctls import CompositeLinearFunctional, LinearFunctional
+from linpde_gp.linops import BlockMatrix2x2, DenseCholeskySolverLinearOperator
 from linpde_gp.randprocs.covfuncs import JaxCovarianceFunction
+from linpde_gp.randprocs.crosscov import ProcessVectorCrossCovariance
+from linpde_gp.randvars import LinearOperatorCovariance
+from probnum import linops
+from scipy.linalg import cho_factor, cho_solve
 
 from ._gp_solver import ConcreteGPSolver, GPInferenceParams, GPSolver
 from .covfuncs import DowndateCovarianceFunction
 
 
 class CholeskyCovarianceFunction(DowndateCovarianceFunction):
-    def __init__(self, gp_params: GPInferenceParams, solve_fn: callable):
+    def __init__(
+        self,
+        gp_params: GPInferenceParams,
+        solve_fn: callable,
+    ):
         self._gp_params = gp_params
         self._solve_fn = solve_fn
         super().__init__(gp_params.prior.cov)
@@ -62,6 +69,62 @@ class CholeskyCovarianceFunction(DowndateCovarianceFunction):
         return (kLas_x0[..., None, :] @ (self._solve_fn(kLas_x1[..., None])))[..., 0, 0]
 
 
+class CholeskyCrossCovariance(ProcessVectorCrossCovariance):
+    def __init__(
+        self,
+        gp_params: GPInferenceParams,
+        L: LinearFunctional,
+        reverse=False,
+    ):
+        self._gp_params = gp_params
+        self._cho_linop = DenseCholeskySolverLinearOperator(gp_params.prior_gram)
+        self._L = L
+        self._argnum = 0 if reverse else 1
+        super().__init__(
+            randproc_input_shape=self._gp_params.prior.cov.input_shape,
+            randproc_output_shape=self._gp_params.prior.cov.output_shape_1
+            if reverse
+            else self._gp_params.prior.cov.output_shape_0,
+            randvar_shape=L.output_shape,
+            reverse=reverse,
+        )
+
+        self._L_prior = self._L(self._gp_params.prior.cov, argnum=self._argnum)
+        self._L_kLas = self._L(self._gp_params.kLas).linop
+        self._kLas = self._gp_params.kLas
+
+    @property
+    def cho_linop(self) -> linops.LinearOperator:
+        return self._cho_linop
+
+    def _evaluate(self, x: np.ndarray) -> np.ndarray:
+        if self.reverse:
+            return (
+                self._L_prior(x)
+                - self._L_kLas @ self._cho_linop @ self._gp_params.kLas(x).T
+            )
+        return (
+            self._L_prior(x)
+            - self._gp_params.kLas(x) @ self._cho_linop @ self._L_kLas.T
+        )
+
+    def _evaluate_jax(self, x: jnp.ndarray) -> jnp.ndarray:
+        return None
+
+    def _evaluate_linop(self, x: np.ndarray) -> linops.LinearOperator:
+        if self.reverse:
+            return (
+                self._L_prior.evaluate_linop(x)
+                - self._L_kLas
+                @ self._cho_linop
+                @ self._gp_params.kLas.evaluate_linop(x).T
+            )
+        return (
+            self._L_prior.evaluate_linop(x)
+            - self._gp_params.kLas.evaluate_linop(x) @ self._cho_linop @ self._L_kLas.T
+        )
+
+
 class ConcreteCholeskySolver(ConcreteGPSolver):
     """Concrete solver that uses the Cholesky decomposition.
 
@@ -76,7 +139,7 @@ class ConcreteCholeskySolver(ConcreteGPSolver):
         dense: bool = False,
     ):
         self._dense = dense
-        self._dense_cho_factor = None
+        self._dense_chol_factor = None
         super().__init__(gp_params, load_path, save_path)
 
     @property
@@ -84,16 +147,24 @@ class ConcreteCholeskySolver(ConcreteGPSolver):
         return self._dense
 
     @property
-    def dense_cho_factor(self):
+    def dense_chol_factor(self):
         if not self.dense:
             raise ValueError("Solver is not dense")
-        if self._dense_cho_factor is None:
-            self._dense_cho_factor = cho_factor(self._gp_params.prior_gram.todense())
-        return self._dense_cho_factor
+        if self._dense_chol_factor is None:
+            self._dense_chol_factor = cho_factor(
+                self._gp_params.prior_gram.todense(), True
+            )
+        return self._dense_chol_factor
+
+    @property
+    def chol_factor(self) -> linops.LinearOperator:
+        if self.dense:
+            return linops.aslinop(np.tril(self.dense_chol_factor[0]))
+        return self._gp_params.prior_gram.cholesky(True)
 
     def _compute_representer_weights(self):
         if self.dense:
-            return cho_solve(self.dense_cho_factor, self._get_full_residual())
+            return cho_solve(self.dense_chol_factor, self._get_full_residual())
         if self._gp_params.prev_representer_weights is not None:
             # Update existing representer weights
             assert isinstance(self._gp_params.prior_gram, BlockMatrix2x2)
@@ -111,9 +182,9 @@ class ConcreteCholeskySolver(ConcreteGPSolver):
         solve_fn = (
             lambda x: self._gp_params.prior_gram.solve(x)
             if not self.dense
-            else cho_solve(self.dense_cho_factor, x)
+            else cho_solve(self.dense_chol_factor, x)
         )
-        return CholeskyCovarianceFunction(self._gp_params, solve_fn)
+        return CholeskyCovarianceFunction(self._gp_params, solve_fn, self.chol_factor)
 
     def _save_state(self) -> dict:
         # TODO: Actually save the Cholesky decomposition of the linear operator
@@ -126,10 +197,16 @@ class ConcreteCholeskySolver(ConcreteGPSolver):
 
 class CholeskySolver(GPSolver):
     """Solver that uses the Cholesky decomposition."""
-    def __init__(self, load_path: str | None = None, save_path: str | None = None, dense: bool = False):
+
+    def __init__(
+        self,
+        load_path: str | None = None,
+        save_path: str | None = None,
+        dense: bool = False,
+    ):
         self._dense = dense
         super().__init__(load_path, save_path)
-    
+
     @property
     def dense(self) -> bool:
         return self._dense
@@ -137,4 +214,43 @@ class CholeskySolver(GPSolver):
     def get_concrete_solver(
         self, gp_params: GPInferenceParams
     ) -> ConcreteCholeskySolver:
-        return ConcreteCholeskySolver(gp_params, self._load_path, self._save_path, self.dense)
+        return ConcreteCholeskySolver(
+            gp_params, self._load_path, self._save_path, self.dense
+        )
+
+
+@LinearFunctional.__call__.register
+@CompositeLinearFunctional.__call__.register
+def _(
+    self,
+    cov: CholeskyCovarianceFunction,
+    /,
+    *,
+    argnum: int = 0,
+):
+    return CholeskyCrossCovariance(
+        cov._gp_params,
+        self,
+        reverse=(argnum == 0),
+    )
+
+
+@LinearFunctional.__call__.register
+@CompositeLinearFunctional.__call__.register
+def _(
+    self,
+    crosscov: CholeskyCrossCovariance,
+    /,
+) -> linops.LinearOperator:
+    L1_L2_prior_cov = self(crosscov._L_prior).linop
+    L2_kLas = self(crosscov._gp_params.kLas).linop
+    L1_kLas = crosscov._L_kLas
+    if crosscov.reverse:
+        res = L1_L2_prior_cov - L1_kLas @ crosscov.cho_linop @ L2_kLas.T
+    else:
+        res = L1_L2_prior_cov - L2_kLas @ crosscov.cho_linop @ L1_kLas.T
+    return LinearOperatorCovariance(
+        res,
+        shape0=crosscov.randvar_shape if crosscov.reverse else self.output_shape,
+        shape1=self.output_shape if crosscov.reverse else crosscov.randvar_shape,
+    )
