@@ -18,6 +18,10 @@ class RankFactorizedMatrix(pn.linops.LinearOperator):
             self._U = U
             super().__init__(U.shape, U.dtype)
 
+    @property
+    def U(self) -> np.ndarray | None:
+        return self._U
+
     def _matmul(self, x: np.ndarray) -> np.ndarray:
         if self._U is None:
             return np.zeros_like(x)
@@ -54,6 +58,14 @@ class LowRankProduct(pn.linops.LinearOperator):
             raise ValueError(
                 "U and V must both be either None or not None at the same time."
             )
+
+    @property
+    def U(self) -> np.ndarray | None:
+        return self._U
+
+    @property
+    def V(self) -> np.ndarray | None:
+        return self._V
 
     def _matmul(self, x: np.ndarray) -> np.ndarray:
         if self._U is None or self._V is None:
