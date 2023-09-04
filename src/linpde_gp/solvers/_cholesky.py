@@ -184,7 +184,7 @@ class ConcreteCholeskySolver(ConcreteGPSolver):
             if not self.dense
             else cho_solve(self.dense_chol_factor, x)
         )
-        return CholeskyCovarianceFunction(self._gp_params, solve_fn, self.chol_factor)
+        return CholeskyCovarianceFunction(self._gp_params, solve_fn)
 
     def _save_state(self) -> dict:
         # TODO: Actually save the Cholesky decomposition of the linear operator
