@@ -4,7 +4,6 @@ import functools
 import jax
 import jax.numpy as jnp
 import numpy as np
-
 from linpde_gp.randprocs.covfuncs import JaxCovarianceFunction
 
 
@@ -21,6 +20,10 @@ class DowndateCovarianceFunction(JaxCovarianceFunction):
             output_shape_0=prior_cov.output_shape_0,
             output_shape_1=prior_cov.output_shape_1,
         )
+
+    @property
+    def prior_cov(self) -> JaxCovarianceFunction:
+        return self._prior_cov
 
     @abc.abstractmethod
     def _downdate(self, x0: np.ndarray, x1: np.ndarray | None) -> np.ndarray:
