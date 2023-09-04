@@ -293,3 +293,16 @@ class BlockMatrix2x2(pn.linops.LinearOperator):
 
     def diagonal(self) -> np.ndarray:
         return np.concatenate((self.A.diagonal(), self.D.diagonal()))
+
+    @functools.cached_property
+    def diagonal_blocks(self) -> tuple[pn.linops.LinearOperator]:
+        # Recursively collect all diagonal blocks
+        if isinstance(self.A, BlockMatrix2x2):
+            A_blocks = self.A.diagonal_blocks
+        else:
+            A_blocks = (self.A,)
+        if isinstance(self.D, BlockMatrix2x2):
+            D_blocks = self.D.diagonal_blocks
+        else:
+            D_blocks = (self.D,)
+        return A_blocks + D_blocks
