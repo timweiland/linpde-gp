@@ -13,7 +13,7 @@ from linpde_gp import linfunctls
 from linpde_gp.functions import JaxFunction
 from linpde_gp.linfuncops import LinearFunctionOperator
 from linpde_gp.linfunctls import LinearFunctional
-from linpde_gp.linops import BlockMatrix, BlockMatrix2x2
+from linpde_gp.linops import BlockMatrix, BlockMatrix2x2, ShapeAlignmentLinearOperator
 from linpde_gp.randprocs.crosscov import ProcessVectorCrossCovariance
 from linpde_gp.randvars import Covariance, LinearOperatorCovariance
 from linpde_gp.solvers import (
@@ -210,9 +210,13 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
 
         def _evaluate(self, x: np.ndarray) -> np.ndarray:
             m_x = self._prior_mean(x)
-            kLas_x = self._kLas(x)
+            kLas_x = ShapeAlignmentLinearOperator(self._kLas, x)
+            correction = kLas_x @ self._solver.compute_representer_weights()
 
-            return m_x + kLas_x @ self._solver.compute_representer_weights()
+            desired_shape = m_x.shape
+            return (m_x.reshape(correction.shape, order="C") + correction).reshape(
+                desired_shape, order="C"
+            )
 
         @functools.partial(jax.jit, static_argnums=0)
         def _evaluate_jax(self, x: jnp.ndarray) -> jnp.ndarray:
