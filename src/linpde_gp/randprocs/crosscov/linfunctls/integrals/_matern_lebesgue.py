@@ -57,6 +57,14 @@ class HalfIntegerMaternRadialAntiderivative(functions.JaxFunction):
             + self._C_1
         )
 
+    def _evaluate_keops(self, r: LazyTensor) -> LazyTensor:
+        return (
+            self._neg_inv_sqrt_2nu
+            * LazyTensor.exp(-self._sqrt_2nu * r)
+            * self._poly._evaluate_keops(self._sqrt_2nu * r)
+            + self._C_1
+        )
+
 
 class HalfIntegerMaternRadialSecondAntiderivative(functions.JaxFunction):
     def __init__(self, order_int: int) -> None:
@@ -103,10 +111,8 @@ class HalfIntegerMaternRadialSecondAntiderivative(functions.JaxFunction):
             + self._C_1 * r
             + self._C_2
         )
-    
-    def _evaluate_keops(
-        self, r: LazyTensor
-    ) -> LazyTensor:
+
+    def _evaluate_keops(self, r: LazyTensor) -> LazyTensor:
         return (
             self._inv_2nu
             * LazyTensor.exp(-self._sqrt_2nu * r)

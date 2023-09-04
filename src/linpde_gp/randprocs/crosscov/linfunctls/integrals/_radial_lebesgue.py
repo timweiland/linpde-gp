@@ -10,6 +10,20 @@ from pykeops.numpy import LazyTensor, Vi, Vj
 from .._base import LinearFunctionalProcessVectorCrossCovariance
 
 
+def _Vi(x: np.ndarray) -> LazyTensor:
+    assert x.ndim == 2
+    if x.shape == (1, 1):
+        return x[0, 0]
+    return Vi(x)
+
+
+def _Vj(x: np.ndarray) -> LazyTensor:
+    assert x.ndim == 2
+    if x.shape == (1, 1):
+        return x[0, 0]
+    return Vj(x)
+
+
 class UnivariateRadialCovarianceFunctionLebesgueIntegral(
     LinearFunctionalProcessVectorCrossCovariance
 ):
@@ -67,6 +81,48 @@ class UnivariateRadialCovarianceFunctionLebesgueIntegral(
         return l * (
             (-1) ** (b < x) * self._radial_antideriv.jax(jnp.abs(b - x) / l)
             - (-1) ** (a < x) * self._radial_antideriv.jax(jnp.abs(a - x) / l)
+        )
+
+    def _evaluate_linop(self, x: np.ndarray) -> pn.linops.LinearOperator:
+        # Build KeOps lazy tensor
+        l = self.covfunc.lengthscale
+        a, b = (
+            self.integral.domains.pure_array[..., 0],
+            self.integral.domains.pure_array[..., 1],
+        )
+        a_contiguous = np.ascontiguousarray(a.reshape((-1, 1)))
+        x_contiguous = np.ascontiguousarray(x.reshape((-1, 1)))
+        b_contiguous = np.ascontiguousarray(b.reshape((-1, 1)))
+        if self.reverse:
+            a_lazy, x_lazy = _Vi(a_contiguous), _Vj(x_contiguous)
+            b_lazy = _Vi(b_contiguous)
+            a, x = make_broadcastable(a, x)
+            b = np.reshape(b, a.shape)
+        else:
+            x_lazy, a_lazy = _Vi(x_contiguous), _Vj(a_contiguous)
+            b_lazy = _Vj(b_contiguous)
+            x, a = make_broadcastable(x, a)
+            b = np.reshape(b, a.shape)
+
+        l = np.asarray(l)[()]
+        lazy_tensor = l * (
+            (b_lazy - x_lazy).ifelse(1, -1)
+            * self._radial_antideriv._evaluate_keops(
+                LazyTensor.abs(b_lazy - x_lazy) / l
+            )
+            - (a_lazy - x_lazy).ifelse(1, -1)
+            * self._radial_antideriv._evaluate_keops(
+                LazyTensor.abs(a_lazy - x_lazy) / l
+            )
+        )
+
+        return KeOpsLinearOperator(
+            lazy_tensor,
+            dense_fallback=lambda: l
+            * (
+                (-1) ** (b < x) * self._radial_antideriv(np.abs(b - x) / l)
+                - (-1) ** (a < x) * self._radial_antideriv(np.abs(a - x) / l)
+            ),
         )
 
 
