@@ -1,30 +1,34 @@
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
 import functools
+from collections.abc import Iterator, Sequence
 
 import jax
 import jax.numpy as jnp
 import numpy as np
-from numpy.typing import ArrayLike
 import probnum as pn
-
 from linpde_gp import linfunctls
 from linpde_gp.functions import JaxFunction
 from linpde_gp.linfuncops import LinearFunctionOperator
-from linpde_gp.linfunctls import LinearFunctional
-from linpde_gp.linops import BlockMatrix, BlockMatrix2x2, ShapeAlignmentLinearOperator
+from linpde_gp.linfunctls import CompositeLinearFunctional, LinearFunctional
+from linpde_gp.linops import (
+    BlockMatrix,
+    BlockMatrix2x2,
+    DenseCholeskySolverLinearOperator,
+    ShapeAlignmentLinearOperator,
+)
 from linpde_gp.randprocs.crosscov import ProcessVectorCrossCovariance
 from linpde_gp.randvars import Covariance, LinearOperatorCovariance
 from linpde_gp.solvers import (
     CholeskySolver,
+    ConcreteCholeskySolver,
     ConcreteGPSolver,
     GPInferenceParams,
     GPSolver,
 )
+from linpde_gp.solvers.itergp import ConcreteIterGPSolver
 from linpde_gp.typing import RandomVariableLike
-
-from timeit import default_timer as timer
+from numpy.typing import ArrayLike
 
 pn.config.register(
     "default_solver_linpde_gp",
@@ -149,7 +153,7 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
             return ConditionalGaussianProcess.PriorPredictiveCrossCovariance(
                 self._kLas + (kLa,)
             )
-        
+
         def replace_last(
             self, kLa: ProcessVectorCrossCovariance
         ) -> ConditionalGaussianProcess.PriorPredictiveCrossCovariance:
@@ -411,9 +415,8 @@ def _(
     )
 
 
-@LinearFunctional.__call__.register(  # pylint: disable=no-member
-    ConditionalGaussianProcess.PriorPredictiveCrossCovariance
-)
+@LinearFunctional.__call__.register
+@CompositeLinearFunctional.__call__.register
 def _(
     self, crosscov: ConditionalGaussianProcess.PriorPredictiveCrossCovariance, /
 ) -> Covariance:
@@ -445,9 +448,8 @@ def _(
     )
 
 
-@LinearFunctional.__call__.register(  # pylint: disable=no-member
-    ConditionalGaussianProcess
-)
+@LinearFunctional.__call__.register
+@CompositeLinearFunctional.__call__.register
 def _(
     self, conditional_gp: ConditionalGaussianProcess, /
 ) -> ConditionalGaussianProcess:
@@ -457,7 +459,26 @@ def _(
     crosscov = self(conditional_gp._kLas).linop
 
     mean = linfunctl_prior.mean + crosscov @ conditional_gp.representer_weights
-    # TODO: Make this compatible with non-Cholesky solvers?
-    cov = linfunctl_prior.cov - crosscov @ conditional_gp.gram.inv() @ crosscov.T
+    if isinstance(conditional_gp.solver, ConcreteCholeskySolver):
+        cho_linop = DenseCholeskySolverLinearOperator(conditional_gp.gram)
+        cov = linfunctl_prior.cov - crosscov @ cho_linop @ crosscov.T
+    elif isinstance(conditional_gp.solver, ConcreteIterGPSolver):
+        cov = (
+            linfunctl_prior.cov
+            - crosscov @ conditional_gp.solver.inverse_approximation @ crosscov.T
+        )
 
     return pn.randvars.Normal(mean, cov)
+
+
+@LinearFunctional.__call__.register
+@CompositeLinearFunctional.__call__.register
+def _(
+    self, mean: ConditionalGaussianProcess.Mean, /
+) -> ConditionalGaussianProcess.Mean:
+    L_prior_mean = self(mean._prior_mean)
+    LkL = self(mean._kLas).linop
+
+    return L_prior_mean + (LkL @ mean._solver.compute_representer_weights()).reshape(
+        L_prior_mean.shape
+    )
