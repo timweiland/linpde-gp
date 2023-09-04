@@ -4,11 +4,13 @@ from typing import Generic, Optional, TypeVar
 
 from jax import numpy as jnp
 import numpy as np
+from probnum import linops
 from probnum.randprocs.covfuncs._arithmetic_fallbacks import (
     ScaledCovarianceFunction,
     SumCovarianceFunction,
 )
 from probnum.typing import ArrayLike, ScalarLike, ScalarType
+from pykeops.numpy import LazyTensor
 
 from ._jax import JaxCovarianceFunction, JaxCovarianceFunctionMixin
 
@@ -40,6 +42,14 @@ class JaxScaledCovarianceFunction(JaxCovarianceFunctionMixin, ScaledCovarianceFu
 
         return super().__rmul__(other)
 
+    def _keops_lazy_tensor(self, x0: np.ndarray, x1: np.ndarray | None) -> LazyTensor:
+        return self._scalar[()] * self.covfunc._keops_lazy_tensor(x0, x1)
+
+    def linop(
+        self, x0: ArrayLike, x1: ArrayLike | None = None
+    ) -> linops.LinearOperator:
+        return self._scalar * self.covfunc.linop(x0, x1)
+
 
 T = TypeVar("T", bound=JaxCovarianceFunction)
 
@@ -63,4 +73,12 @@ class JaxSumCovarianceFunction(
         return functools.reduce(
             operator.add,
             (summand.jax(x0, x1) for summand in self.summands),
+        )
+
+    def linop(
+        self, x0: ArrayLike, x1: ArrayLike | None = None
+    ) -> linops.LinearOperator:
+        return functools.reduce(
+            operator.add,
+            (summand.linop(x0, x1) for summand in self.summands),
         )
