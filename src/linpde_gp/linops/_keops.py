@@ -15,10 +15,17 @@ class KeOpsLinearOperator(LinearOperator):
         return self._lazy_tensor
 
     def _matmul(self, x: np.ndarray) -> np.ndarray:
+        if self._lazy_tensor.shape[0] == 1 or self._lazy_tensor.shape[1] == 1:
+            return self.todense() @ x
         return self._lazy_tensor @ x
 
     def _transpose(self) -> LinearOperator:
-        return KeOpsLinearOperator(self.lazy_tensor.T)
+        return KeOpsLinearOperator(
+            self.lazy_tensor.T,
+            dense_fallback=lambda: self._dense_fallback().T
+            if self._dense_fallback is not None
+            else None,
+        )
 
     def _todense(self) -> np.ndarray:
         if self._dense_fallback is not None:
