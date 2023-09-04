@@ -43,6 +43,7 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
         *,
         L: None | LinearFunctional | LinearFunctionOperator = None,
         b: None | RandomVariableLike = None,
+        noise: float = 0.0,
         solver: GPSolver = None,
     ):
         if solver is None:
@@ -53,6 +54,7 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
             X=X,
             L=L,
             b=b,
+            noise=noise,
         )
 
         kLas = ConditionalGaussianProcess.PriorPredictiveCrossCovariance((kLa,))
@@ -232,10 +234,20 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
         *,
         L: LinearFunctional | LinearFunctionOperator | None = None,
         b: RandomVariableLike | None = None,
-        noise: float = 1e-12,
-        crosscov=None,
+        noise: float = 1e-8,
         solver: GPSolver = None,
+        fresh_start=False,
     ):
+        if fresh_start:
+            return ConditionalGaussianProcess.from_observations(
+                prior=self,
+                Y=Y,
+                X=X,
+                L=L,
+                b=b,
+                noise=noise,
+                solver=solver,
+            )
         if solver is None:
             solver = pn.config.default_solver_linpde_gp
         Y, L, b, kLa, gram = self._preprocess_observations(
@@ -247,14 +259,8 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
             noise=noise,
         )
 
-        # start_time = timer()
-        if crosscov is None:
         # Compute lower-left block in the new covariance matrix
-            gram_L_La_prev_blocks = L(self._kLas).linop
-        else:
-            gram_L_La_prev_blocks = crosscov
-        # end_time = timer()
-        # print(f"Time for crosscov: {end_time - start_time}")
+        gram_L_La_prev_blocks = L(self._kLas).linop
 
         # Update the Cholesky decomposition of the previous covariance matrix and the
         # representer weights
