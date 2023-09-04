@@ -115,21 +115,20 @@ class HalfIntegerMatern_Identity_DirectionalDerivative(JaxCovarianceFunction):
         if x1 is None:
             x1 = x0
         if len(x0.shape) < 2:
-            x0 = x0.reshape(-1, 1)
+            x0 = np.ascontiguousarray(x0.reshape(-1, 1))
         if len(x1.shape) < 2:
-            x1 = x1.reshape(-1, 1)
+            x1 = np.ascontiguousarray(x1.reshape(-1, 1))
 
         scaled_diffs = Vi(x0) - Vj(x1)
         scaled_diffs *= Pm(self._matern_scale_factors)
 
         proj_scaled_diffs = (Pm(self._scaled_direction) * scaled_diffs).sum()
-        scaled_dists = scaled_diffs * scaled_diffs
-        scaled_dists = scaled_dists.sum().sqrt()
+        scaled_dists = LazyTensor.norm2(scaled_diffs)
 
         res = self._poly._evaluate_keops(  # pylint: disable=protected-access
             scaled_dists
         )
-        res *= (-scaled_dists).exp()
+        res *= LazyTensor.exp(-scaled_dists)
         res *= proj_scaled_diffs
 
         return res
@@ -234,9 +233,9 @@ class HalfIntegerMatern_DirectionalDerivative_DirectionalDerivative(
         if x1 is None:
             x1 = x0
         if len(x0.shape) < 2:
-            x0 = x0.reshape(-1, 1)
+            x0 = np.ascontiguousarray(x0.reshape(-1, 1))
         if len(x1.shape) < 2:
-            x1 = x1.reshape(-1, 1)
+            x1 = np.ascontiguousarray(x1.reshape(-1, 1))
 
         scaled_diffs = Vi(x0) - Vj(x1)
         scaled_diffs *= Pm(self._matern_scale_factors)
@@ -244,8 +243,7 @@ class HalfIntegerMatern_DirectionalDerivative_DirectionalDerivative(
         proj_scaled_diffs0 = (Pm(self._scaled_direction0) * scaled_diffs).sum()
         proj_scaled_diffs1 = (Pm(self._scaled_direction1) * scaled_diffs).sum()
 
-        scaled_dists = scaled_diffs * scaled_diffs
-        scaled_dists = scaled_dists.sum().sqrt()
+        scaled_dists = LazyTensor.norm2(scaled_diffs)
 
         res = Pm(
             self._directions_inprod
@@ -599,9 +597,9 @@ class UnivariateHalfIntegerMatern_DirectionalDerivative_WeightedLaplacian(
         if x1 is None:
             x1 = x0
         if len(x0.shape) < 2:
-            x0 = x0.reshape(-1, 1)
+            x0 = np.ascontiguousarray(x0.reshape(-1, 1))
         if len(x1.shape) < 2:
-            x1 = x1.reshape(-1, 1)
+            x1 = np.ascontiguousarray(x1.reshape(-1, 1))
         scaled_diffs = Vi(x0) - Vj(x1)
         scaled_diffs *= Pm(self._matern_scale_factors)
 
