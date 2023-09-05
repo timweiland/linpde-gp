@@ -2,7 +2,7 @@ from typing import Optional
 
 import numpy as np
 from jax import numpy as jnp
-from linpde_gp.linfunctls import CompositeLinearFunctional, LinearFunctional
+from linpde_gp.linfunctls import CompositeLinearFunctional, LinearFunctional, _EvaluationFunctional
 from linpde_gp.linops import BlockMatrix2x2, DenseCholeskySolverLinearOperator
 from linpde_gp.randprocs.covfuncs import JaxCovarianceFunction
 from linpde_gp.randprocs.crosscov import ProcessVectorCrossCovariance
@@ -221,6 +221,7 @@ class CholeskySolver(GPSolver):
 
 @LinearFunctional.__call__.register
 @CompositeLinearFunctional.__call__.register
+@_EvaluationFunctional.__call__.register
 def _(
     self,
     cov: CholeskyCovarianceFunction,
@@ -237,6 +238,7 @@ def _(
 
 @LinearFunctional.__call__.register
 @CompositeLinearFunctional.__call__.register
+@_EvaluationFunctional.__call__.register
 def _(
     self,
     crosscov: CholeskyCrossCovariance,
