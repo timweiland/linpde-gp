@@ -88,7 +88,7 @@ class Box(CartesianProduct):
         return isinstance(other, Box) and np.all(self.bounds == other.bounds)
 
     def uniform_grid(
-        self, shape: ShapeLike, inset: ArrayLike = 0.0
+        self, shape: ShapeLike, inset: ArrayLike = 0.0, centered=False
     ) -> "TensorProductGrid":
         from linpde_gp.randprocs.covfuncs import (  # pylint: disable=import-outside-toplevel
             TensorProductGrid,
@@ -107,7 +107,7 @@ class Box(CartesianProduct):
         def get_grid(idx, num_points, inset):
             sub_domain = self[int(idx)]
             if isinstance(sub_domain, Interval):
-                return sub_domain.uniform_grid(num_points, inset=inset)
+                return sub_domain.uniform_grid(num_points, inset=inset, centered=centered)
             assert isinstance(sub_domain, Point)
             assert num_points == 1
             return np.array(sub_domain).reshape((1,))
