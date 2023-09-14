@@ -14,6 +14,7 @@ from linpde_gp.linfunctls import CompositeLinearFunctional, LinearFunctional
 from linpde_gp.linops import (
     BlockMatrix,
     BlockMatrix2x2,
+    CrosscovSandwichLinearOperator,
     DenseCholeskySolverLinearOperator,
     ShapeAlignmentLinearOperator,
 )
@@ -461,7 +462,7 @@ def _(
     mean = linfunctl_prior.mean + crosscov @ conditional_gp.representer_weights
     if isinstance(conditional_gp.solver, ConcreteCholeskySolver):
         cho_linop = DenseCholeskySolverLinearOperator(conditional_gp.gram)
-        cov = linfunctl_prior.cov - crosscov @ cho_linop @ crosscov.T
+        cov = linfunctl_prior.cov - CrosscovSandwichLinearOperator(crosscov, cho_linop)
     elif isinstance(conditional_gp.solver, ConcreteIterGPSolver):
         cov = (
             linfunctl_prior.cov

@@ -1,6 +1,8 @@
 import numpy as np
 from probnum import linops
 from scipy.linalg import cho_factor, cho_solve
+from probnum.linops._vectorize import vectorize_matmat
+import functools
 
 
 class DenseCholeskySolverLinearOperator(linops.LinearOperator):
@@ -17,8 +19,16 @@ class DenseCholeskySolverLinearOperator(linops.LinearOperator):
             dtype=linop.dtype,
         )
 
+    @vectorize_matmat(method=True)
     def _matmul(self, x: np.ndarray) -> np.ndarray:
         return cho_solve(self._cho, x)
 
     def _transpose(self) -> linops.LinearOperator:
         return self
+
+    @functools.cached_property
+    def raw_factor(self) -> np.ndarray:
+        if self._cho[1]:
+            # Lower triangular factor
+            return np.tril(self._cho[0])
+        return np.triu(self._cho[0]).T

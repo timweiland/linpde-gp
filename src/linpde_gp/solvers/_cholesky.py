@@ -1,13 +1,23 @@
+import functools
 from typing import Optional
 
 import numpy as np
 from jax import numpy as jnp
-from linpde_gp.linfunctls import CompositeLinearFunctional, LinearFunctional, _EvaluationFunctional
-from linpde_gp.linops import BlockMatrix2x2, DenseCholeskySolverLinearOperator
+from linpde_gp.linfunctls import (
+    CompositeLinearFunctional,
+    LinearFunctional,
+    _EvaluationFunctional,
+)
+from linpde_gp.linops import (
+    BlockMatrix2x2,
+    DenseCholeskySolverLinearOperator,
+    CrosscovSandwichLinearOperator,
+)
 from linpde_gp.randprocs.covfuncs import JaxCovarianceFunction
 from linpde_gp.randprocs.crosscov import ProcessVectorCrossCovariance
 from linpde_gp.randvars import LinearOperatorCovariance
 from probnum import linops
+from probnum.typing import ArrayLike
 from scipy.linalg import cho_factor, cho_solve
 
 from ._gp_solver import ConcreteGPSolver, GPInferenceParams, GPSolver
@@ -67,6 +77,20 @@ class CholeskyCovarianceFunction(DowndateCovarianceFunction):
         )
 
         return (kLas_x0[..., None, :] @ (self._solve_fn(kLas_x1[..., None])))[..., 0, 0]
+
+    def linop(
+        self, x0: ArrayLike, x1: ArrayLike | None = None
+    ) -> linops.LinearOperator:
+        cho_linop = DenseCholeskySolverLinearOperator(self._gp_params.prior_gram)
+        crosscov_x0 = self._gp_params.kLas.evaluate_linop(x0)
+        crosscov_x1 = (
+            self._gp_params.kLas.evaluate_linop(x1) if x1 is not None else crosscov_x0
+        )
+        if x1 is None:
+            downdate_linop = CrosscovSandwichLinearOperator(crosscov_x0, cho_linop)
+        else:
+            downdate_linop = crosscov_x0 @ cho_linop @ crosscov_x1.T
+        return self._gp_params.prior.cov.linop(x0, x1) - downdate_linop
 
 
 class CholeskyCrossCovariance(ProcessVectorCrossCovariance):
@@ -139,32 +163,21 @@ class ConcreteCholeskySolver(ConcreteGPSolver):
         dense: bool = False,
     ):
         self._dense = dense
-        self._dense_chol_factor = None
         super().__init__(gp_params, load_path, save_path)
 
     @property
     def dense(self) -> bool:
         return self._dense
 
-    @property
-    def dense_chol_factor(self):
+    @functools.cached_property
+    def dense_linop(self):
         if not self.dense:
             raise ValueError("Solver is not dense")
-        if self._dense_chol_factor is None:
-            self._dense_chol_factor = cho_factor(
-                self._gp_params.prior_gram.todense(), True
-            )
-        return self._dense_chol_factor
-
-    @property
-    def chol_factor(self) -> linops.LinearOperator:
-        if self.dense:
-            return linops.aslinop(np.tril(self.dense_chol_factor[0]))
-        return self._gp_params.prior_gram.cholesky(True)
+        return DenseCholeskySolverLinearOperator(self._gp_params.prior_gram)
 
     def _compute_representer_weights(self):
         if self.dense:
-            return cho_solve(self.dense_chol_factor, self._get_full_residual())
+            return self.dense_linop @ self._get_full_residual()
         if self._gp_params.prev_representer_weights is not None:
             # Update existing representer weights
             assert isinstance(self._gp_params.prior_gram, BlockMatrix2x2)
@@ -182,7 +195,7 @@ class ConcreteCholeskySolver(ConcreteGPSolver):
         solve_fn = (
             lambda x: self._gp_params.prior_gram.solve(x)
             if not self.dense
-            else cho_solve(self.dense_chol_factor, x)
+            else self.dense_linop @ x
         )
         return CholeskyCovarianceFunction(self._gp_params, solve_fn)
 
