@@ -6,7 +6,7 @@ from linpde_gp.domains import Domain
 
 
 class SolutionErrorEstimator:
-    TEMPORAL_RESOLUTION_DEFAULT = 10
+    TEMPORAL_RESOLUTION_DEFAULT = 50
     SPATIAL_RESOLUTION_DEFAULT = 50
 
     def __init__(
@@ -14,6 +14,7 @@ class SolutionErrorEstimator:
         solution: callable,
         domain: Domain,
         resolution: tuple[int, ...] | None = None,
+        norm: str = "L2",
     ):
         self._solution = solution
         self._domain = domain
@@ -22,6 +23,9 @@ class SolutionErrorEstimator:
                 self.SPATIAL_RESOLUTION_DEFAULT,
             ) * (domain.size - 1)
         self._resolution = resolution
+        if norm not in ("L1", "L2", "Linf"):
+            raise ValueError(f"Invalid norm: {norm}")
+        self._norm_type = norm
 
     @property
     def solution(self):
@@ -38,13 +42,20 @@ class SolutionErrorEstimator:
     @property
     def _X(self):
         return self.domain.uniform_grid(self.resolution)
+    
+    def _norm(self, f):
+        if self._norm_type == "L1":
+            return np.mean(np.abs(f))
+        elif self._norm_type == "L2":
+            return np.sqrt(np.mean(f ** 2))
+        return np.max(np.abs(f))
 
     @functools.cached_property
     def solution_normalization_constant(self):
-        return np.sqrt(np.mean(self.solution(self._X) ** 2))
+        return self._norm(self.solution(self._X))
 
     def __call__(self, gp: pn.randprocs.GaussianProcess):
         return (
-            np.sqrt(np.mean((self.solution(self._X) - gp.mean(self._X)) ** 2))
+            self._norm(self.solution(self._X) - gp.mean(self._X))
             / self.solution_normalization_constant
         )
