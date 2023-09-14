@@ -5,7 +5,11 @@ import jax.numpy as jnp
 import numpy as np
 from tqdm.notebook import tqdm
 
-from linpde_gp.linfunctls import CompositeLinearFunctional, LinearFunctional
+from linpde_gp.linfunctls import (
+    CompositeLinearFunctional,
+    LinearFunctional,
+    _EvaluationFunctional,
+)
 from linpde_gp.linops import LinearOperator, LowRankProduct, RankFactorizedMatrix
 from linpde_gp.randprocs.covfuncs import JaxCovarianceFunction
 from linpde_gp.randprocs.crosscov import ProcessVectorCrossCovariance
@@ -140,17 +144,26 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
         gp_params: GPInferenceParams,
         policy: Policy,
         stopping_criterion: StoppingCriterion,
+        *,
+        eval_points: np.ndarray = None,
+        benchmark_folder: str | None = None,
     ):
         self.policy = policy.get_concrete_policy(gp_params)
         self.stopping_criterion = stopping_criterion.get_concrete_criterion(gp_params)
         self.solver_state = SolverState(0, None, None, None, None, gp_params, None)
+        self.eval_points = eval_points
+        self.benchmark_folder = benchmark_folder
         super().__init__(gp_params)
 
     def _compute_representer_weights(self):
         residual = self._get_full_residual()
-        print(np.argmax(residual))
-        print(np.argmin(residual))
         K_hat = self._gp_params.prior_gram
+
+        self.solver_state.representer_weights = np.zeros((K_hat.shape[1]))
+        residual_norm = np.linalg.norm(residual, ord=2)
+        print(f"Solving for matrix size {K_hat.shape}")
+        self.solver_state.predictive_residual = residual
+        self.solver_state.relative_error = 1.0
 
         self.solver_state.inverse_approx = RankFactorizedMatrix(
             None, K_hat.shape, np.float64
@@ -159,18 +172,22 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
             None, None, K_hat.shape, np.float64
         )
 
-        self.solver_state.representer_weights = np.zeros((K_hat.shape[1]))
-        residual_norm = np.linalg.norm(residual, ord=2)
-        print(f"Solving for matrix size {K_hat.shape}")
-        self.solver_state.predictive_residual = residual
-        self.solver_state.relative_error = 1.0
-
-        benchmarker = SolverBenchmarker("./blockcg-benchmark")
+        benchmarker = SolverBenchmarker(self.benchmark_folder)
         benchmarker.start_benchmark()
 
         pbar = tqdm(total=K_hat.shape[1])
 
-        marginal_uncertainty = np.zeros((K_hat.shape[1]))
+        if self.eval_points is not None:
+            print("Computing prior marginal uncertainty...")
+            self.solver_state.marginal_uncertainty = (
+                self._gp_params.prior.cov.linop(self.eval_points).diagonal().copy()
+            )
+            eval_fctl = _EvaluationFunctional(
+                self._gp_params.prior.input_shape,
+                self._gp_params.prior.output_shape,
+                self.eval_points,
+            )
+            eval_crosscov = eval_fctl(self._gp_params.kLas).linop
         while (not self.stopping_criterion(self.solver_state)) and (
             self.solver_state.iteration < K_hat.shape[1]
         ):
@@ -179,15 +196,11 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
                 break
             alpha = np.dot(action, self.solver_state.predictive_residual)
             K_hat_action = K_hat @ action
-            marginal_uncertainty -= K_hat_action**2
             C_K_hat_action = self.solver_state.inverse_approx @ K_hat_action
             K_hat_C_K_hat_action = self.solver_state.K_hat_inverse_approx @ K_hat_action
             search_direction = action - C_K_hat_action
             K_hat_search_direction = K_hat_action - K_hat_C_K_hat_action
             normalization_constant = action.T @ K_hat_search_direction
-
-            if normalization_constant < 0:
-                print(f"Warning: Normalization constant < 0.")
 
             rayleigh = normalization_constant / np.dot(action, action)
             normalization_constant = (
@@ -201,12 +214,21 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
                 K_hat_search_direction * sqrt_normalization_constant,
                 search_direction * sqrt_normalization_constant,
             )
+
             self.solver_state.representer_weights += (
                 alpha * normalization_constant
             ) * search_direction
             self.solver_state.predictive_residual -= (
                 alpha * normalization_constant
             ) * K_hat_search_direction
+
+            if normalization_constant < 0:
+                print(f"Warning: Normalization constant < 0.")
+
+            if self.eval_points is not None:
+                self.solver_state.marginal_uncertainty -= (
+                    eval_crosscov @ (sqrt_normalization_constant * search_direction)
+                ) ** 2
 
             self.solver_state.relative_error = (
                 np.linalg.norm(self.solver_state.predictive_residual, ord=2)
@@ -219,7 +241,7 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
 
             benchmarker.log_metric(metrics)
             pbar.set_description(
-                f"Relative error {self.solver_state.relative_error:.2f}, Rayleigh {rayleigh:.2f}. Marginal uncertainty {np.linalg.norm(marginal_uncertainty) / marginal_uncertainty.size:.2f} "
+                f"Relative error {self.solver_state.relative_error:.2f}, Rayleigh {rayleigh:.2f}. "
             )
             pbar.update(1)
             self.solver_state.iteration += 1
@@ -301,22 +323,49 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
 
 
 class IterGPSolver(GPSolver):
-    def __init__(self, policy: Policy, stopping_criterion: StoppingCriterion):
+    def __init__(
+        self,
+        policy: Policy,
+        stopping_criterion: StoppingCriterion,
+        *,
+        eval_points: np.ndarray = None,
+        benchmark_folder: str | None = None,
+    ):
         self.policy = policy
         self.stopping_criterion = stopping_criterion
+        self.eval_points = eval_points
+        self.benchmark_folder = benchmark_folder
         super().__init__()
 
     def get_concrete_solver(self, gp_params: GPInferenceParams) -> ConcreteIterGPSolver:
-        return ConcreteIterGPSolver(gp_params, self.policy, self.stopping_criterion)
+        return ConcreteIterGPSolver(
+            gp_params,
+            self.policy,
+            self.stopping_criterion,
+            eval_points=self.eval_points,
+            benchmark_folder=self.benchmark_folder,
+        )
 
 
 class IterGP_CG_Solver(IterGPSolver):
-    def __init__(self, max_iterations: int = 1000, threshold=1e-2):
+    def __init__(
+        self,
+        max_iterations: int = 1000,
+        threshold=1e-2,
+        *,
+        eval_points: np.ndarray = None,
+        benchmark_folder: str | None = None,
+    ):
         policy = CGPolicy()
         stopping_criterion = IterationStoppingCriterion(
             max_iterations
         ) | ResidualNormStoppingCriterion(threshold)
-        super().__init__(policy, stopping_criterion)
+        super().__init__(
+            policy,
+            stopping_criterion,
+            eval_points=eval_points,
+            benchmark_folder=benchmark_folder,
+        )
 
 
 @LinearFunctional.__call__.register

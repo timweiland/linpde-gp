@@ -15,3 +15,4 @@ class SolverState:
     K_hat_inverse_approx: LowRankProduct
     gp_params: GPInferenceParams
     relative_error: float
+    marginal_uncertainty: np.ndarray | None = None
