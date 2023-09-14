@@ -4,6 +4,7 @@ from typing import List, Optional
 import jax.numpy as jnp
 import numpy as np
 from tqdm.notebook import tqdm
+import torch
 
 from linpde_gp.linfunctls import (
     CompositeLinearFunctional,
@@ -147,20 +148,33 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
         *,
         eval_points: np.ndarray = None,
         benchmark_folder: str | None = None,
+        use_torch=True,
     ):
         self.policy = policy.get_concrete_policy(gp_params)
         self.stopping_criterion = stopping_criterion.get_concrete_criterion(gp_params)
         self.solver_state = SolverState(0, None, None, None, None, gp_params, None)
         self.eval_points = eval_points
         self.benchmark_folder = benchmark_folder
+        self.use_torch = use_torch
         super().__init__(gp_params)
 
     def _compute_representer_weights(self):
+        device = "cuda" if torch.cuda.is_available() else "cpu"
         residual = self._get_full_residual()
+        if self.use_torch:
+            residual = torch.from_numpy(residual).to(device)
         K_hat = self._gp_params.prior_gram
 
-        self.solver_state.representer_weights = np.zeros((K_hat.shape[1]))
-        residual_norm = np.linalg.norm(residual, ord=2)
+        self.solver_state.representer_weights = (
+            np.zeros((K_hat.shape[1]))
+            if not self.use_torch
+            else torch.zeros((K_hat.shape[1]), dtype=torch.float64).to(device)
+        )
+        residual_norm = (
+            np.linalg.norm(residual, ord=2)
+            if not self.use_torch
+            else torch.norm(residual, p=2)
+        )
         print(f"Solving for matrix size {K_hat.shape}")
         self.solver_state.predictive_residual = residual
         self.solver_state.relative_error = 1.0
@@ -182,6 +196,10 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
             self.solver_state.marginal_uncertainty = (
                 self._gp_params.prior.cov.linop(self.eval_points).diagonal().copy()
             )
+            if self.use_torch:
+                self.solver_state.marginal_uncertainty = torch.from_numpy(
+                    self.solver_state.marginal_uncertainty
+                ).to(device)
             eval_fctl = _EvaluationFunctional(
                 self._gp_params.prior.input_shape,
                 self._gp_params.prior.output_shape,
@@ -193,8 +211,8 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
         ):
             action = self.policy(self.solver_state)
             if action is None:  # Policy ran out of actions, quit early
-                break
-            alpha = np.dot(action, self.solver_state.predictive_residual)
+                break                
+            alpha = action.T @ self.solver_state.predictive_residual
             K_hat_action = K_hat @ action
             C_K_hat_action = self.solver_state.inverse_approx @ K_hat_action
             K_hat_C_K_hat_action = self.solver_state.K_hat_inverse_approx @ K_hat_action
@@ -202,11 +220,11 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
             K_hat_search_direction = K_hat_action - K_hat_C_K_hat_action
             normalization_constant = action.T @ K_hat_search_direction
 
-            rayleigh = normalization_constant / np.dot(action, action)
+            rayleigh = normalization_constant / (action.T @ action)
             normalization_constant = (
                 1.0 / normalization_constant if normalization_constant > 0.0 else 0.0
             )
-            sqrt_normalization_constant = np.sqrt(normalization_constant)
+            sqrt_normalization_constant = np.sqrt(normalization_constant) if not self.use_torch else torch.sqrt(normalization_constant)
             self.solver_state.inverse_approx.append_factor(
                 search_direction * sqrt_normalization_constant
             )
@@ -230,10 +248,16 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
                     eval_crosscov @ (sqrt_normalization_constant * search_direction)
                 ) ** 2
 
-            self.solver_state.relative_error = (
-                np.linalg.norm(self.solver_state.predictive_residual, ord=2)
-                / residual_norm
-            )
+            if self.use_torch:
+                self.solver_state.relative_error = (
+                    torch.norm(self.solver_state.predictive_residual, p=2)
+                    / residual_norm
+                )
+            else:
+                self.solver_state.relative_error = (
+                    np.linalg.norm(self.solver_state.predictive_residual, ord=2)
+                    / residual_norm
+                )
             metrics = {
                 "relative_error": self.solver_state.relative_error,
                 "rayleigh": rayleigh,

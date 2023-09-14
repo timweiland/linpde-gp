@@ -4,6 +4,7 @@ from typing import List
 import numpy as np
 import probnum as pn
 from probnum.typing import LinearOperatorLike
+import torch
 
 pn.config.register(
     "block_triangular_solves",
@@ -52,6 +53,9 @@ class BlockMatrix(pn.linops.LinearOperator):
     def _split_input(self, x: np.ndarray) -> List[np.ndarray]:
         return np.split(x, self._split_indices, axis=-2)
 
+    def _split_input_torch(self, x: torch.Tensor) -> List[torch.Tensor]:
+        return torch.split(x, [block.shape[1] for block in self._blocks[0, :]], dim=-2)
+
     def _matmul(self, x: np.ndarray) -> np.ndarray:
         x_split = self._split_input(x)
         row_wise_results = []
@@ -66,6 +70,23 @@ class BlockMatrix(pn.linops.LinearOperator):
                 )
             )
         return np.concatenate(row_wise_results, axis=-2)
+
+    def _matmul_torch(self, x: torch.Tensor) -> torch.Tensor:
+        x_split = self._split_input_torch(x)
+        row_wise_results = []
+        for i in range(self.blocks.shape[0]):
+            row_wise_results.append(
+                torch.sum(
+                    torch.stack(
+                        tuple(
+                            block @ cur_x
+                            for block, cur_x in zip(self.blocks[i, :], x_split)
+                        )
+                    ),
+                    axis=0,
+                )
+            )
+        return torch.cat(row_wise_results, axis=-2)
 
     def _transpose(self) -> "BlockMatrix":
         blocks_transposed = np.copy(self.blocks.T)
@@ -209,6 +230,9 @@ class BlockMatrix2x2(pn.linops.LinearOperator):
     def _split_input(self, x: np.ndarray, axis: int):
         return np.split(x, [self.A.shape[1]], axis=axis)
 
+    def _split_input_torch(self, x: torch.Tensor, axis: int):
+        return torch.split(x, [self.A.shape[1], self.B.shape[1]], dim=axis)
+
     def _matmul(self, x: np.ndarray) -> np.ndarray:
         x0, x1 = self._split_input(x, axis=-2)
         if not np.any(x0):
@@ -225,6 +249,29 @@ class BlockMatrix2x2(pn.linops.LinearOperator):
             D_x1 = self.D @ x1
 
         return np.concatenate(
+            (
+                A_x0 + B_x1,
+                C_x0 + D_x1,
+            ),
+            axis=-2,
+        )
+
+    def _matmul_torch(self, x: torch.Tensor) -> torch.Tensor:
+        x0, x1 = self._split_input_torch(x, axis=-2)
+        if not torch.any(x0):
+            A_x0 = pn.linops.Zero(self.A.shape, self.A.dtype) @ x0
+            C_x0 = pn.linops.Zero(self.C.shape, self.C.dtype) @ x0
+        else:
+            A_x0 = self.A @ x0
+            C_x0 = self.C @ x0
+        if not torch.any(x1):
+            B_x1 = pn.linops.Zero(self.B.shape, self.B.dtype) @ x1
+            D_x1 = pn.linops.Zero(self.D.shape, self.D.dtype) @ x1
+        else:
+            B_x1 = self.B @ x1
+            D_x1 = self.D @ x1
+
+        return torch.cat(
             (
                 A_x0 + B_x1,
                 C_x0 + D_x1,

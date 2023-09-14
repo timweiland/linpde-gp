@@ -1,12 +1,14 @@
 from jax import numpy as jnp
 import numpy as np
 import probnum as pn
+import torch
 
 from linpde_gp import functions, linfunctls
 from linpde_gp.randprocs import covfuncs
 from linpde_gp.randvars import Covariance
 
 from pykeops.numpy import LazyTensor, Pm
+from pykeops.torch import LazyTensor as LazyTensor_Torch, Pm as Pm_Torch
 
 from ._radial_lebesgue import (
     UnivariateRadialCovarianceFunctionLebesgueIntegral,
@@ -65,6 +67,15 @@ class HalfIntegerMaternRadialAntiderivative(functions.JaxFunction):
             + self._C_1
         )
 
+    def _evaluate_keops_torch(self, r: LazyTensor_Torch) -> LazyTensor_Torch:
+        to_torch = lambda x: torch.from_numpy(np.asarray(x)).to(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
+        sqrt_2nu_torch = to_torch(self._sqrt_2nu)
+        return to_torch(self._neg_inv_sqrt_2nu) * LazyTensor_Torch.exp(
+            -sqrt_2nu_torch * r
+        ) * self._poly._evaluate_keops_torch(sqrt_2nu_torch * r) + to_torch(self._C_1)
+
 
 class HalfIntegerMaternRadialSecondAntiderivative(functions.JaxFunction):
     def __init__(self, order_int: int) -> None:
@@ -119,6 +130,19 @@ class HalfIntegerMaternRadialSecondAntiderivative(functions.JaxFunction):
             * self._poly._evaluate_keops(self._sqrt_2nu * r)
             + self._C_1 * r
             + self._C_2
+        )
+
+    def _evaluate_keops_torch(self, r: LazyTensor_Torch) -> LazyTensor_Torch:
+        to_torch = lambda x: torch.from_numpy(np.asarray(x)).to(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
+        sqrt_2nu_torch = to_torch(self._sqrt_2nu)
+        return (
+            to_torch(self._inv_2nu)
+            * LazyTensor_Torch.exp(-sqrt_2nu_torch * r)
+            * self._poly._evaluate_keops_torch(sqrt_2nu_torch * r)
+            + to_torch(self._C_1) * r
+            + to_torch(self._C_2)
         )
 
 

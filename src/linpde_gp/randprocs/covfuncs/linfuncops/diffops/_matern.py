@@ -7,9 +7,12 @@ from jax import numpy as jnp
 import numpy as np
 from probnum.randprocs import covfuncs
 from pykeops.numpy import LazyTensor, Pm, Vi, Vj
+from pykeops.torch import LazyTensor as LazyTensor_Torch
+from pykeops.torch import Pm as Pm_torch, Vi as Vi_torch, Vj as Vj_torch
 
 from linpde_gp.functions import Monomial, RationalPolynomial
 from linpde_gp.linfuncops import diffops
+import torch
 
 from ..._jax import JaxCovarianceFunction, JaxIsotropicMixin
 
@@ -129,6 +132,31 @@ class HalfIntegerMatern_Identity_DirectionalDerivative(JaxCovarianceFunction):
             scaled_dists
         )
         res *= LazyTensor.exp(-scaled_dists)
+        res *= proj_scaled_diffs
+
+        return res
+
+    def _keops_lazy_tensor_torch(
+        self, x0: torch.Tensor, x1: torch.Tensor | None
+    ) -> LazyTensor_Torch:
+        to_torch = lambda z: torch.from_numpy(np.asarray(z)).to(x0.device)
+        if x1 is None:
+            x1 = x0
+        if len(x0.shape) < 2:
+            x0 = x0.reshape(-1, 1).contiguous()
+        if len(x1.shape) < 2:
+            x1 = x1.reshape(-1, 1).contiguous()
+
+        scaled_diffs = Vi_torch(x0) - Vj_torch(x1)
+        scaled_diffs *= Pm_torch(to_torch(self._matern_scale_factors))
+
+        proj_scaled_diffs = (to_torch(self._scaled_direction) * scaled_diffs).sum()
+        scaled_dists = LazyTensor_Torch.norm2(scaled_diffs)
+
+        res = self._poly._evaluate_keops_torch(  # pylint: disable=protected-access
+            scaled_dists
+        )
+        res *= LazyTensor_Torch.exp(-scaled_dists)
         res *= proj_scaled_diffs
 
         return res
@@ -261,6 +289,41 @@ class HalfIntegerMatern_DirectionalDerivative_DirectionalDerivative(
 
         return res
 
+    def _keops_lazy_tensor_torch(
+        self, x0: torch.Tensor, x1: torch.Tensor | None
+    ) -> LazyTensor_Torch:
+        to_torch = lambda z: torch.from_numpy(np.asarray(z)).to(x0.device)
+        if x1 is None:
+            x1 = x0
+        if len(x0.shape) < 2:
+            x0 = x0.reshape(-1, 1).contiguous()
+        if len(x1.shape) < 2:
+            x1 = x1.reshape(-1, 1).contiguous()
+
+        scaled_diffs = Vi_torch(x0) - Vj_torch(x1)
+        scaled_diffs *= Pm_torch(to_torch(self._matern_scale_factors))
+
+        proj_scaled_diffs0 = (to_torch(self._scaled_direction0) * scaled_diffs).sum()
+        proj_scaled_diffs1 = (to_torch(self._scaled_direction1) * scaled_diffs).sum()
+
+        scaled_dists = LazyTensor_Torch.norm2(scaled_diffs)
+
+        res = Pm_torch(
+            to_torch(self._directions_inprod)
+        ) * self._neg_poly_deriv._evaluate_keops_torch(  # pylint: disable=protected-access
+            scaled_dists
+        )
+        res -= (
+            proj_scaled_diffs0
+            * proj_scaled_diffs1
+            * self._poly_diff._evaluate_keops_torch(  # pylint: disable=protected-access
+                scaled_dists
+            )
+        )
+        res *= (-scaled_dists).exp()
+
+        return res
+
 
 class UnivariateHalfIntegerMatern_DirectionalDerivative_DirectionalDerivative(
     covfuncs.IsotropicMixin, JaxIsotropicMixin, JaxCovarianceFunction
@@ -356,6 +419,24 @@ class UnivariateHalfIntegerMatern_DirectionalDerivative_DirectionalDerivative(
             * (-scaled_dists).exp()
         )
 
+    def _keops_lazy_tensor_torch(
+        self, x0: torch.Tensor, x1: torch.Tensor | None
+    ) -> LazyTensor_Torch:
+        to_torch = lambda z: torch.from_numpy(np.asarray(z)).to(x0.device)
+        scaled_dists = self._euclidean_distances_keops_torch(
+            x0,
+            x1,
+            scale_factors=to_torch(self._matern_scale_factors),
+        )
+
+        return (
+            Pm_torch(to_torch(self._scaled_directions_prod))
+            * self._poly._evaluate_keops_torch(  # pylint: disable=protected-access
+                scaled_dists
+            )
+            * (-scaled_dists).exp()
+        )
+
 
 class UnivariateHalfIntegerMatern_Identity_WeightedLaplacian(
     covfuncs.IsotropicMixin, JaxIsotropicMixin, JaxCovarianceFunction
@@ -437,6 +518,24 @@ class UnivariateHalfIntegerMatern_Identity_WeightedLaplacian(
             )
         )
 
+    def _keops_lazy_tensor_torch(
+        self, x0: torch.Tensor, x1: torch.Tensor | None
+    ) -> LazyTensor_Torch:
+        to_torch = lambda z: torch.from_numpy(np.asarray(z)).to(x0.device)
+        scaled_dists = self._euclidean_distances_keops_torch(
+            x0,
+            x1,
+            scale_factors=to_torch(self._matern_scale_factors),
+        )
+
+        return (
+            Pm_torch(to_torch(self._output_scale_factor))
+            * (-scaled_dists).exp()
+            * self._poly._evaluate_keops_torch(  # pylint: disable=protected-access
+                scaled_dists
+            )
+        )
+
 
 class UnivariateHalfIntegerMatern_WeightedLaplacian_WeightedLaplacian(
     covfuncs.IsotropicMixin, JaxIsotropicMixin, JaxCovarianceFunction
@@ -506,6 +605,24 @@ class UnivariateHalfIntegerMatern_WeightedLaplacian_WeightedLaplacian(
             Pm(self._output_scale_factor)
             * (-scaled_dists).exp()
             * self._poly._evaluate_keops(  # pylint: disable=protected-access
+                scaled_dists
+            )
+        )
+
+    def _keops_lazy_tensor_torch(
+        self, x0: torch.Tensor, x1: torch.Tensor | None
+    ) -> LazyTensor_Torch:
+        to_torch = lambda z: torch.from_numpy(np.asarray(z)).to(x0.device)
+        scaled_dists = self._euclidean_distances_keops_torch(
+            x0,
+            x1,
+            scale_factors=to_torch(self._matern_scale_factors),
+        )
+
+        return (
+            Pm_torch(to_torch(self._output_scale_factor))
+            * (-scaled_dists).exp()
+            * self._poly._evaluate_keops_torch(  # pylint: disable=protected-access
                 scaled_dists
             )
         )
@@ -610,6 +727,33 @@ class UnivariateHalfIntegerMatern_DirectionalDerivative_WeightedLaplacian(
         return (
             (-scaled_dists).exp()
             * self._poly._evaluate_keops(  # pylint: disable=protected-access
+                scaled_dists
+            )
+            * proj_scaled_diffs
+        )
+
+    def _keops_lazy_tensor_torch(
+        self, x0: torch.Tensor, x1: torch.Tensor | None
+    ) -> LazyTensor_Torch:
+        to_torch = lambda z: torch.from_numpy(np.asarray(z)).to(x0.device)
+        if x1 is None:
+            x1 = x0
+        if len(x0.shape) < 2:
+            x0 = x0.reshape(-1, 1).contiguous()
+        if len(x1.shape) < 2:
+            x1 = x1.reshape(-1, 1).contiguous()
+        scaled_diffs = Vi_torch(x0) - Vj_torch(x1)
+        scaled_diffs *= Pm_torch(to_torch(self._matern_scale_factors))
+
+        proj_scaled_diffs = (
+            Pm_torch(to_torch(self._scaled_direction)) * scaled_diffs
+        ).sum()
+        scaled_dists = scaled_diffs * scaled_diffs
+        scaled_dists = scaled_dists.sum().sqrt()
+
+        return (
+            (-scaled_dists).exp()
+            * self._poly._evaluate_keops_torch(  # pylint: disable=protected-access
                 scaled_dists
             )
             * proj_scaled_diffs

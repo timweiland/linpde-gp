@@ -1,11 +1,14 @@
 import numpy as np
 import probnum as pn
 from jax import numpy as jnp
+import torch
+
 from linpde_gp import functions, linfunctls
 from linpde_gp.linops import KeOpsLinearOperator
 from linpde_gp.randvars import LinearOperatorCovariance
 from probnum.randprocs import covfuncs
 from pykeops.numpy import LazyTensor, Vi, Vj
+from pykeops.torch import LazyTensor as LazyTensor_Torch, Vi as Vi_Torch, Vj as Vj_Torch
 
 from .._base import LinearFunctionalProcessVectorCrossCovariance
 
@@ -93,18 +96,30 @@ class UnivariateRadialCovarianceFunctionLebesgueIntegral(
         a_contiguous = np.ascontiguousarray(a.reshape((-1, 1)))
         x_contiguous = np.ascontiguousarray(x.reshape((-1, 1)))
         b_contiguous = np.ascontiguousarray(b.reshape((-1, 1)))
+        a_torch = torch.from_numpy(a_contiguous).to(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
+        x_torch = torch.from_numpy(x_contiguous).to(a_torch.device)
+        b_torch = torch.from_numpy(b_contiguous).to(a_torch.device)
         if self.reverse:
             a_lazy, x_lazy = Vi(a_contiguous), Vj(x_contiguous)
             b_lazy = Vi(b_contiguous)
+            a_lazy_torch, x_lazy_torch = Vi_Torch(a_torch), Vj_Torch(x_torch)
+            b_lazy_torch = Vi_Torch(b_torch)
+
             a, x = make_broadcastable(a, x)
             b = np.reshape(b, a.shape)
         else:
             x_lazy, a_lazy = Vi(x_contiguous), Vj(a_contiguous)
             b_lazy = Vj(b_contiguous)
+            x_lazy_torch, a_lazy_torch = Vi_Torch(x_torch), Vj_Torch(a_torch)
+            b_lazy_torch = Vj_Torch(b_torch)
+
             x, a = make_broadcastable(x, a)
             b = np.reshape(b, a.shape)
 
         l = np.asarray(l)[()]
+        l_torch = torch.from_numpy(np.asarray(l)).to(a_torch.device)
         lazy_tensor = l * (
             (b_lazy - x_lazy).ifelse(1, -1)
             * self._radial_antideriv._evaluate_keops(
@@ -115,9 +130,20 @@ class UnivariateRadialCovarianceFunctionLebesgueIntegral(
                 LazyTensor.abs(a_lazy - x_lazy) / l
             )
         )
+        lazy_tensor_torch = l_torch * (
+            (b_lazy_torch - x_lazy_torch).ifelse(1, -1)
+            * self._radial_antideriv._evaluate_keops_torch(
+                LazyTensor_Torch.abs(b_lazy_torch - x_lazy_torch) / l_torch
+            )
+            - (a_lazy_torch - x_lazy_torch).ifelse(1, -1)
+            * self._radial_antideriv._evaluate_keops_torch(
+                LazyTensor_Torch.abs(a_lazy_torch - x_lazy_torch) / l_torch
+            )
+        )
 
         return KeOpsLinearOperator(
             lazy_tensor,
+            lazy_tensor_torch,
             dense_fallback=lambda: l
             * (
                 (-1) ** (b < x) * self._radial_antideriv(np.abs(b - x) / l)
@@ -140,9 +166,22 @@ def univariate_radial_covfunc_lebesgue_integral_lebesgue_integral(
     lazy_tensor = _univariate_radial_covfunc_lebesgue_integral_lebesgue_integral_keops(
         a, b, c, d, l, radial_antideriv_2
     )
+
+    a_torch = torch.from_numpy(a).to("cuda" if torch.cuda.is_available() else "cpu")
+    b_torch = torch.from_numpy(b).to("cuda" if torch.cuda.is_available() else "cpu")
+    c_torch = torch.from_numpy(c).to("cuda" if torch.cuda.is_available() else "cpu")
+    d_torch = torch.from_numpy(d).to("cuda" if torch.cuda.is_available() else "cpu")
+
+    lazy_tensor_torch = (
+        _univariate_radial_covfunc_lebesgue_integral_lebesgue_integral_keops_torch(
+            a_torch, b_torch, c_torch, d_torch, l, radial_antideriv_2
+        )
+    )
+
     return LinearOperatorCovariance(
         KeOpsLinearOperator(
             lazy_tensor,
+            lazy_tensor_torch,
             dense_fallback=lambda: _univariate_radial_covfunc_lebesgue_integral_lebesgue_integral_dense(
                 a, b, c, d, l, radial_antideriv_2
             ),
@@ -188,6 +227,26 @@ def _univariate_radial_covfunc_lebesgue_integral_lebesgue_integral_keops(
         - radial_antideriv_2._evaluate_keops(LazyTensor.abs(a - c) / l)
         - radial_antideriv_2._evaluate_keops(LazyTensor.abs(b - d) / l)
         + radial_antideriv_2._evaluate_keops(LazyTensor.abs(a - d) / l)
+    )
+
+
+def _univariate_radial_covfunc_lebesgue_integral_lebesgue_integral_keops_torch(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    c: torch.Tensor,
+    d: torch.Tensor,
+    l: float,
+    radial_antideriv_2: functions.JaxFunction,
+):
+    l = torch.from_numpy(np.asarray(l)).to(a.device)
+    a, c = Vi_Torch(a.reshape((-1, 1))), Vj_Torch(c.reshape((-1, 1)))
+    b, d = Vi_Torch(b.reshape((-1, 1))), Vj_Torch(d.reshape((-1, 1)))
+
+    return l**2 * (
+        radial_antideriv_2._evaluate_keops_torch(LazyTensor_Torch.abs(b - c) / l)
+        - radial_antideriv_2._evaluate_keops_torch(LazyTensor_Torch.abs(a - c) / l)
+        - radial_antideriv_2._evaluate_keops_torch(LazyTensor_Torch.abs(b - d) / l)
+        + radial_antideriv_2._evaluate_keops_torch(LazyTensor_Torch.abs(a - d) / l)
     )
 
 

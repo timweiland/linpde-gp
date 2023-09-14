@@ -9,6 +9,8 @@ from jax import numpy as jnp
 import numpy as np
 from probnum.typing import FloatLike
 from pykeops.numpy import LazyTensor, Pm
+from pykeops.torch import LazyTensor as LazyTensor_Torch, Pm as Pm_torch
+import torch
 
 from . import _jax
 from ._constant import Constant
@@ -82,6 +84,18 @@ class Polynomial(_jax.JaxFunction):
         for k in range(self.degree - 1, -1, -1):
             res *= x
             res += Pm(self._coeffs[k])
+
+        return res
+
+    def _evaluate_keops_torch(self, x: LazyTensor_Torch) -> LazyTensor_Torch:
+        to_torch = lambda z: torch.from_numpy(np.asarray(z)).to(
+            "cuda" if torch.cuda.is_available() else "cpu"
+        )
+        res = Pm_torch(to_torch(self._coeffs[self.degree]))
+
+        for k in range(self.degree - 1, -1, -1):
+            res *= x
+            res += Pm_torch(to_torch(self._coeffs[k]))
 
         return res
 

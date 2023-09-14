@@ -3,6 +3,7 @@ from probnum import linops
 from scipy.linalg import cho_factor, cho_solve
 from probnum.linops._vectorize import vectorize_matmat
 import functools
+import torch
 
 
 class DenseCholeskySolverLinearOperator(linops.LinearOperator):
@@ -19,9 +20,20 @@ class DenseCholeskySolverLinearOperator(linops.LinearOperator):
             dtype=linop.dtype,
         )
 
+    @functools.cached_property
+    def cho_torch(self):
+        return torch.linalg.cholesky(
+            torch.tensor(self._linop.todense()).to(
+                "cuda" if torch.cuda.is_available() else "cpu"
+            )
+        )
+
     @vectorize_matmat(method=True)
     def _matmul(self, x: np.ndarray) -> np.ndarray:
         return cho_solve(self._cho, x)
+
+    def _matmul_torch(self, x: torch.Tensor) -> torch.Tensor:
+        return torch.cholesky_solve(x, self.cho_torch)
 
     def _transpose(self) -> linops.LinearOperator:
         return self

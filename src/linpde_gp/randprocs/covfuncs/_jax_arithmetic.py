@@ -11,6 +11,8 @@ from probnum.randprocs.covfuncs._arithmetic_fallbacks import (
 )
 from probnum.typing import ArrayLike, ScalarLike, ScalarType
 from pykeops.numpy import LazyTensor
+from pykeops.torch import LazyTensor as LazyTensor_Torch
+import torch
 
 from ._jax import JaxCovarianceFunction, JaxCovarianceFunctionMixin
 
@@ -44,6 +46,13 @@ class JaxScaledCovarianceFunction(JaxCovarianceFunctionMixin, ScaledCovarianceFu
 
     def _keops_lazy_tensor(self, x0: np.ndarray, x1: np.ndarray | None) -> LazyTensor:
         return self._scalar[()] * self.covfunc._keops_lazy_tensor(x0, x1)
+
+    def _keops_lazy_tensor_torch(
+        self, x0: torch.Tensor, x1: torch.Tensor | None
+    ) -> LazyTensor_Torch:
+        return torch.from_numpy(self._scalar[()]).to(
+            x0.device
+        ) * self.covfunc._keops_lazy_tensor_torch(x0, x1)
 
     def linop(
         self, x0: ArrayLike, x1: ArrayLike | None = None

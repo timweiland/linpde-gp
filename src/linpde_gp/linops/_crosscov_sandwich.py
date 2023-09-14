@@ -1,6 +1,7 @@
 import numpy as np
 from probnum import linops
 from scipy.linalg import solve_triangular
+import torch
 
 
 class CrosscovSandwichLinearOperator(linops.LinearOperator):
@@ -12,6 +13,9 @@ class CrosscovSandwichLinearOperator(linops.LinearOperator):
         super().__init__((crosscov.shape[0], crosscov.shape[0]), crosscov.dtype)
 
     def _matmul(self, x: np.ndarray) -> np.ndarray:
+        return (self._crosscov @ self._sandwiched_linop @ self._crosscov.T) @ x
+    
+    def _matmul_torch(self, x: torch.Tensor) -> torch.Tensor:
         return (self._crosscov @ self._sandwiched_linop @ self._crosscov.T) @ x
 
     def _transpose(self) -> linops.LinearOperator:
