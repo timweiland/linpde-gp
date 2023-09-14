@@ -15,6 +15,7 @@ class KeOpsLinearOperator(LinearOperator):
         return self._lazy_tensor
 
     def _matmul(self, x: np.ndarray) -> np.ndarray:
+        x = np.ascontiguousarray(x)
         if self._lazy_tensor.shape[0] == 1 or self._lazy_tensor.shape[1] == 1:
             return self.todense() @ x
         return self._lazy_tensor @ x
