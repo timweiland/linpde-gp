@@ -94,13 +94,13 @@ class UnivariateRadialCovarianceFunctionLebesgueIntegral(
         x_contiguous = np.ascontiguousarray(x.reshape((-1, 1)))
         b_contiguous = np.ascontiguousarray(b.reshape((-1, 1)))
         if self.reverse:
-            a_lazy, x_lazy = _Vi(a_contiguous), _Vj(x_contiguous)
-            b_lazy = _Vi(b_contiguous)
+            a_lazy, x_lazy = Vi(a_contiguous), Vj(x_contiguous)
+            b_lazy = Vi(b_contiguous)
             a, x = make_broadcastable(a, x)
             b = np.reshape(b, a.shape)
         else:
-            x_lazy, a_lazy = _Vi(x_contiguous), _Vj(a_contiguous)
-            b_lazy = _Vj(b_contiguous)
+            x_lazy, a_lazy = Vi(x_contiguous), Vj(a_contiguous)
+            b_lazy = Vj(b_contiguous)
             x, a = make_broadcastable(x, a)
             b = np.reshape(b, a.shape)
 
