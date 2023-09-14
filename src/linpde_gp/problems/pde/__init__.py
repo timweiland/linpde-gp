@@ -17,3 +17,8 @@ from ._poisson import (
     Solution_PoissonEquation_IVP_1D_RHSPiecewisePolynomial,
     Solution_PoissonEquation_IVP_1D_RHSPolynomial,
 )
+from ._wave import (
+    WaveEquation,
+    WaveEquationDirichletProblem,
+    Solution_WaveEquation_DirichletProblem_ND_InitialTruncatedSineSeries_BoundaryZero,
+)
