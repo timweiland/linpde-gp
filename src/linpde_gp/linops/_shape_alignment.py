@@ -6,6 +6,7 @@ if TYPE_CHECKING:
     from linpde_gp.randprocs.crosscov import ProcessVectorCrossCovariance
 
 import numpy as np
+import torch
 
 
 class ShapeAlignmentLinearOperator(LinearOperator):
@@ -63,5 +64,45 @@ class ShapeAlignmentLinearOperator(LinearOperator):
                     + len(self._x_batch_shape),
                 ),
                 np.arange(x_shape_start, x_shape_start + len(self._x_batch_shape)),
+            )
+        return inner_res.reshape(original_shape)
+
+    def _matmul_torch(self, x: torch.Tensor) -> torch.Tensor:
+        inner_res = self._inner_linop @ x
+        original_shape = inner_res.shape
+        expanded_shape = list(original_shape)
+
+        # Expand axis -2 to self._x_output_shape + self._x_batch_shape
+        if inner_res.ndim == 1:
+            expanded_shape = self._x_output_shape + self._x_batch_shape
+        else:
+            expanded_shape[-2:-1] = self._x_output_shape + self._x_batch_shape
+        inner_res = inner_res.reshape(expanded_shape)
+        # Move batch shape to front
+        if inner_res.ndim == 1:
+            inner_res = torch.moveaxis(
+                inner_res,
+                tuple(torch.arange(
+                    len(self._x_output_shape),
+                    len(self._x_output_shape) + len(self._x_batch_shape),
+                )),
+                tuple(torch.arange(len(self._x_batch_shape))),
+            )
+        else:
+            x_shape_start = (
+                inner_res.ndim
+                - 1
+                - len(self._x_output_shape)
+                - len(self._x_batch_shape)
+            )
+            inner_res = torch.moveaxis(
+                inner_res,
+                tuple(torch.arange(
+                    x_shape_start + len(self._x_output_shape),
+                    x_shape_start
+                    + len(self._x_output_shape)
+                    + len(self._x_batch_shape),
+                )),
+                tuple(torch.arange(x_shape_start, x_shape_start + len(self._x_batch_shape))),
             )
         return inner_res.reshape(original_shape)
