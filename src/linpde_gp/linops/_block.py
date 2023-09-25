@@ -88,10 +88,12 @@ class BlockMatrix(pn.linops.LinearOperator):
             )
         return torch.cat(row_wise_results, axis=-2)
 
+    @functools.lru_cache
     def _transpose(self) -> "BlockMatrix":
-        blocks_transposed = np.copy(self.blocks.T)
+        blocks_transposed = np.empty((self.blocks.shape[1], self.blocks.shape[0]), dtype=object)
+        #blocks_transposed = np.copy(self.blocks.T)
         for i, j in np.ndindex(blocks_transposed.shape):
-            blocks_transposed[i, j] = blocks_transposed[i, j].T
+            blocks_transposed[i, j] = self.blocks[j, i].T
         return BlockMatrix(blocks_transposed.tolist())
 
     def _todense(self) -> np.ndarray:
