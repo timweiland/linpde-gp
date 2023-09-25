@@ -1,3 +1,4 @@
+import functools
 import numpy as np
 from probnum.linops import LinearOperator
 from probnum.typing import DTypeLike, ShapeLike
@@ -39,8 +40,8 @@ class KeOpsLinearOperator(LinearOperator):
         if (
             self._lazy_tensor_torch.shape[0] == 1
             or self._lazy_tensor_torch.shape[1] == 1
-        ):
-            return torch.as_tensor(self.todense()) @ x
+        ) or (self.shape[0] <= 128 and self.shape[1] <= 128):
+            return self._todense_torch @ x
         return self._lazy_tensor_torch @ x
 
     def _transpose(self) -> LinearOperator:
@@ -58,3 +59,8 @@ class KeOpsLinearOperator(LinearOperator):
         if self._dense_fallback is not None:
             return self._dense_fallback()
         return self._lazy_tensor @ np.eye(self.shape[1], dtype=self.dtype)
+    
+    @functools.cached_property
+    def _todense_torch(self) -> torch.Tensor:
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        return torch.as_tensor(self.todense()).to(device)

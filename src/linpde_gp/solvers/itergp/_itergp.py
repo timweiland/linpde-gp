@@ -149,6 +149,7 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
         eval_points: np.ndarray = None,
         benchmark_folder: str | None = None,
         use_torch=True,
+        compute_residual_directly=False,
     ):
         self.policy = policy.get_concrete_policy(gp_params)
         self.stopping_criterion = stopping_criterion.get_concrete_criterion(gp_params)
@@ -156,6 +157,7 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
         self.eval_points = eval_points
         self.benchmark_folder = benchmark_folder
         self.use_torch = use_torch
+        self.compute_residual_directly = compute_residual_directly
         super().__init__(gp_params)
 
     def _compute_representer_weights(self):
@@ -236,9 +238,12 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
             self.solver_state.representer_weights += (
                 alpha * normalization_constant
             ) * search_direction
-            self.solver_state.predictive_residual -= (
-                alpha * normalization_constant
-            ) * K_hat_search_direction
+            if not self.compute_residual_directly:
+                self.solver_state.predictive_residual -= (
+                    alpha * normalization_constant
+                ) * K_hat_search_direction
+            else:
+                self.solver_state.predictive_residual = residual - K_hat @ self.solver_state.representer_weights
 
             if normalization_constant < 0:
                 print(f"Warning: Normalization constant < 0.")
@@ -275,6 +280,8 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
         print(
             f"Required {self.solver_state.iteration + 1} iterations for matrix size {K_hat.shape}"
         )
+        if self.use_torch:
+            self.solver_state.representer_weights = self.solver_state.representer_weights.cpu().numpy()
         return self.solver_state.representer_weights
 
     def compute_posterior_cov(self, x0: np.ndarray, x1: Optional[np.ndarray]):
@@ -354,11 +361,15 @@ class IterGPSolver(GPSolver):
         *,
         eval_points: np.ndarray = None,
         benchmark_folder: str | None = None,
+        use_torch = True,
+        compute_residual_directly=False,
     ):
         self.policy = policy
         self.stopping_criterion = stopping_criterion
         self.eval_points = eval_points
         self.benchmark_folder = benchmark_folder
+        self.use_torch = use_torch
+        self.compute_residual_directly = compute_residual_directly
         super().__init__()
 
     def get_concrete_solver(self, gp_params: GPInferenceParams) -> ConcreteIterGPSolver:
@@ -368,6 +379,8 @@ class IterGPSolver(GPSolver):
             self.stopping_criterion,
             eval_points=self.eval_points,
             benchmark_folder=self.benchmark_folder,
+            use_torch=self.use_torch,
+            compute_residual_directly=self.compute_residual_directly,
         )
 
 
@@ -379,6 +392,8 @@ class IterGP_CG_Solver(IterGPSolver):
         *,
         eval_points: np.ndarray = None,
         benchmark_folder: str | None = None,
+        use_torch = True,
+        compute_residual_directly=False,
     ):
         policy = CGPolicy()
         stopping_criterion = IterationStoppingCriterion(
@@ -389,6 +404,8 @@ class IterGP_CG_Solver(IterGPSolver):
             stopping_criterion,
             eval_points=eval_points,
             benchmark_folder=benchmark_folder,
+            use_torch=use_torch,
+            compute_residual_directly=compute_residual_directly,
         )
 
 
