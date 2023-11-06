@@ -274,6 +274,12 @@ class ScaledCovariance(Covariance):
         return broadcasted.reshape(broadcasted.shape + (1,) * self.ndim1)
 
     @property
+    def _linop_scalar(self) -> np.ndarray:
+        if self._scalar.ndim == 0:
+            return self._scalar
+        return self._broadcasted_scalar.reshape(-1, order="C")
+
+    @property
     def reverse(self) -> bool:
         return self._reverse
 
@@ -285,10 +291,10 @@ class ScaledCovariance(Covariance):
     def linop(self) -> pn.linops.LinearOperator:
         if self.reverse:
             return self.cov.linop @ pn.linops.Scaling(
-                self._broadcasted_scalar.reshape(-1, order="C")
+                self._linop_scalar, shape=(self.size1,self.size1)
             )
         return (
-            pn.linops.Scaling(self._broadcasted_scalar.reshape(-1, order="C"))
+            pn.linops.Scaling(self._linop_scalar, shape=(self.size0, self.size0))
             @ self.cov.linop
         )
 
