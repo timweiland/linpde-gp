@@ -43,46 +43,40 @@ class ConcreteBlockwisePolicy(ConcretePolicy):
         gp_params: GPInferenceParams,
         block_policies: List[BlockPolicy],
         num_iterations_per_block: List[int],
-        mode="cycle",
+        cycle_schedule: List[int],
     ):
-        self._cur_block_idx = 0
         self._cur_num_iterations = 0
         self._num_iterations_per_block = num_iterations_per_block
-        self._mode = mode
+        self._cycle_schedule = cycle_schedule
+        self._cycle_idx = 0
+        self._cur_block_idx = cycle_schedule[0]
+        self._total_iterations_per_block = [0] * len(block_policies)
+        self._max_iterations_per_block = [
+            block.shape[1] for block in gp_params.prior_gram.diagonal_blocks
+        ]
 
         self._block_policies = block_policies
-        self._cur_policy = block_policies[0].get_concrete_policy(gp_params, 0)
+        self._cur_policy = block_policies[self._cur_block_idx].get_concrete_policy(
+            gp_params, self._cur_block_idx
+        )
         super().__init__(gp_params)
 
     def _next(self) -> bool:
-        if self._mode == "cycle":
-            num_tried = 0
-            while self._cur_num_iterations >= self._num_iterations_per_block[
+        while (
+            self._cur_num_iterations
+            >= self._num_iterations_per_block[self._cur_block_idx]
+            or self._total_iterations_per_block[self._cur_block_idx]
+            >= self._max_iterations_per_block[self._cur_block_idx]
+        ):
+            self._cycle_idx += 1
+            self._cur_block_idx = self._cycle_schedule[
+                self._cycle_idx % len(self._cycle_schedule)
+            ]
+            self._cur_num_iterations = 0
+            self._cur_policy = self._block_policies[
                 self._cur_block_idx
-            ] and num_tried < len(self._block_policies):
-                self._cur_policy = self._block_policies[
-                    self._cur_block_idx
-                ].get_concrete_policy(self._gp_params, self._cur_block_idx)
-                self._cur_num_iterations = 0
-                self._cur_block_idx = (self._cur_block_idx + 1) % len(
-                    self._block_policies
-                )
-                num_tried += 1
-            if num_tried == len(self._block_policies):
-                return False
-        elif self._mode == "sequential":
-            while self._cur_num_iterations >= self._num_iterations_per_block[
-                self._cur_block_idx
-            ] and self._cur_block_idx < len(self._block_policies):
-                self._cur_policy = self._block_policies[
-                    self._cur_block_idx
-                ].get_concrete_policy(self._gp_params, self._cur_block_idx)
-                self._cur_num_iterations = 0
-                self._cur_block_idx += 1
-            if self._cur_block_idx == len(self._block_policies):
-                return False
-        else:
-            raise ValueError(f"Undefined mode: {self._mode}")
+            ].get_concrete_policy(self._gp_params, self._cur_block_idx)
+
         return True
 
     def __call__(
@@ -92,6 +86,7 @@ class ConcreteBlockwisePolicy(ConcretePolicy):
             return None
 
         self._cur_num_iterations += 1
+        self._total_iterations_per_block[self._cur_block_idx] += 1
         return self._cur_policy(solver_state, rng)
 
 
@@ -100,16 +95,19 @@ class BlockwisePolicy(Policy):
         self,
         block_policies: List[BlockPolicy],
         num_iterations_per_block: List[int] | int,
-        mode="cycle",
+        cycle_schedule: List[int],
     ):
         self._block_policies = block_policies
         if isinstance(num_iterations_per_block, int):
             num_iterations_per_block = [num_iterations_per_block] * len(block_policies)
         self._num_iterations_per_block = num_iterations_per_block
-        self._mode = mode
+        self._cycle_schedule = cycle_schedule
         super().__init__()
 
     def get_concrete_policy(self, gp_params: GPInferenceParams) -> ConcretePolicy:
         return ConcreteBlockwisePolicy(
-            gp_params, self._block_policies, self._num_iterations_per_block, self._mode
+            gp_params,
+            self._block_policies,
+            self._num_iterations_per_block,
+            self._cycle_schedule,
         )
