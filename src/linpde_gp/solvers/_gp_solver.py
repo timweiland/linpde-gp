@@ -24,6 +24,8 @@ class GPInferenceParams:
     kLas: ProcessVectorCrossCovariance
     prev_representer_weights: Optional[np.ndarray]
     full_representer_weights: Optional[np.ndarray]
+    prior_inverse_approx: pn.linops.LinearOperator | None = None
+    prior_marginal_uncertainty: np.ndarray | None = None
 
 
 class ConcreteGPSolver(abc.ABC):

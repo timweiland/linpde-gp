@@ -51,6 +51,8 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
         b: None | RandomVariableLike = None,
         noise: float = 0.0,
         solver: GPSolver = None,
+        prev_representer_weights: np.ndarray | None = None,
+        prior_inverse_approx: pn.linops.LinearOperator | None = None,
     ):
         if solver is None:
             solver = pn.config.default_solver_linpde_gp
@@ -73,6 +75,8 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
             kLas=kLas,
             gram_matrix=gram,
             solver=solver,
+            prev_representer_weights=prev_representer_weights,
+            prior_inverse_approx=prior_inverse_approx,
         )
 
     def __init__(
@@ -86,6 +90,9 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
         gram_matrix: pn.linops.LinearOperator,
         solver: GPSolver,
         full_representer_weights: np.ndarray | None = None,
+        prev_representer_weights: np.ndarray | None = None,
+        prior_inverse_approx: pn.linops.LinearOperator | None = None,
+        prior_marginal_uncertainty: np.ndarray | None = None,
     ):
         self._prior = prior
 
@@ -96,9 +103,8 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
         self._kLas = kLas
 
         self._gram_matrix = gram_matrix
-
         inference_params = GPInferenceParams(
-            prior, gram_matrix, Ys, Ls, bs, kLas, None, full_representer_weights
+            prior, gram_matrix, Ys, Ls, bs, kLas, prev_representer_weights, full_representer_weights, prior_inverse_approx, prior_marginal_uncertainty,
         )
         self._solver = solver.get_concrete_solver(inference_params)
         self._abstract_solver = solver
@@ -243,19 +249,11 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
         noise: float = 1e-8,
         solver: GPSolver = None,
         fresh_start=False,
+        prior_marginal_uncertainty=None,
     ):
-        if fresh_start:
-            return ConditionalGaussianProcess.from_observations(
-                prior=self,
-                Y=Y,
-                X=X,
-                L=L,
-                b=b,
-                noise=noise,
-                solver=solver,
-            )
         if solver is None:
             solver = pn.config.default_solver_linpde_gp
+        
         Y, L, b, kLa, gram = self._preprocess_observations(
             prior=self._prior,
             Y=Y,
@@ -289,6 +287,9 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
             kLas=kLas,
             gram_matrix=gram_matrix,
             solver=solver,
+            prev_representer_weights=self.representer_weights if fresh_start else self._solver._gp_params.prev_representer_weights,
+            prior_inverse_approx=self.solver.inverse_approximation if fresh_start else self._solver._gp_params.prior_inverse_approx,
+            prior_marginal_uncertainty=prior_marginal_uncertainty if fresh_start else self._solver._gp_params.prior_marginal_uncertainty,
         )
 
     @classmethod
