@@ -175,6 +175,10 @@ class ConcreteCholeskySolver(ConcreteGPSolver):
         if not self.dense:
             raise ValueError("Solver is not dense")
         return DenseCholeskySolverLinearOperator(self._gp_params.prior_gram)
+    
+    @property
+    def inverse_approximation(self) -> linops.LinearOperator:
+        return self.dense_linop
 
     def _compute_representer_weights(self):
         if self.dense:

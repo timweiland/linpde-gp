@@ -67,6 +67,11 @@ class ConcreteGPSolver(abc.ABC):
     @abc.abstractmethod
     def posterior_cov(self) -> JaxCovarianceFunction:
         raise NotImplementedError
+    
+    @property
+    @abc.abstractmethod
+    def inverse_approximation(self) -> pn.linops.LinearOperator:
+        raise NotImplementedError
 
     def _get_residual(self, Y, L, b):
         return np.reshape(
