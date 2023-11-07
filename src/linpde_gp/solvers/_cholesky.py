@@ -18,6 +18,7 @@ from linpde_gp.randprocs.crosscov import ProcessVectorCrossCovariance
 from linpde_gp.randvars import LinearOperatorCovariance
 from probnum import linops
 from probnum.typing import ArrayLike
+from probnum.linops._arithmetic_fallbacks import SumLinearOperator
 from scipy.linalg import cho_factor, cho_solve
 
 from ._gp_solver import ConcreteGPSolver, GPInferenceParams, GPSolver
@@ -90,7 +91,7 @@ class CholeskyCovarianceFunction(DowndateCovarianceFunction):
             downdate_linop = CrosscovSandwichLinearOperator(crosscov_x0, cho_linop)
         else:
             downdate_linop = crosscov_x0 @ cho_linop @ crosscov_x1.T
-        return self._gp_params.prior.cov.linop(x0, x1) - downdate_linop
+        return SumLinearOperator(self._gp_params.prior.cov.linop(x0, x1), -downdate_linop, expand_sum=False)
 
 
 class CholeskyCrossCovariance(ProcessVectorCrossCovariance):
@@ -261,9 +262,9 @@ def _(
     L2_kLas = self(crosscov._gp_params.kLas).linop
     L1_kLas = crosscov._L_kLas
     if crosscov.reverse:
-        res = L1_L2_prior_cov - L1_kLas @ crosscov.cho_linop @ L2_kLas.T
+        res = SumLinearOperator(L1_L2_prior_cov, -L1_kLas @ crosscov.cho_linop @ L2_kLas.T, expand_sum=False)
     else:
-        res = L1_L2_prior_cov - L2_kLas @ crosscov.cho_linop @ L1_kLas.T
+        res = SumLinearOperator(L1_L2_prior_cov, -L2_kLas @ crosscov.cho_linop @ L1_kLas.T, expand_sum=False)
     return LinearOperatorCovariance(
         res,
         shape0=crosscov.randvar_shape if crosscov.reverse else self.output_shape,

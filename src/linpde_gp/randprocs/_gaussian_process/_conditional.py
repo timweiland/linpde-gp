@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import probnum as pn
+from probnum.linops._arithmetic_fallbacks import SumLinearOperator
 from linpde_gp import linfunctls
 from linpde_gp.functions import JaxFunction
 from linpde_gp.linfuncops import LinearFunctionOperator
@@ -462,7 +463,7 @@ def _(
     mean = linfunctl_prior.mean + crosscov @ conditional_gp.representer_weights
     if isinstance(conditional_gp.solver, ConcreteCholeskySolver):
         cho_linop = DenseCholeskySolverLinearOperator(conditional_gp.gram)
-        cov = linfunctl_prior.cov - CrosscovSandwichLinearOperator(crosscov, cho_linop)
+        cov = SumLinearOperator(linfunctl_prior.cov, -CrosscovSandwichLinearOperator(crosscov, cho_linop), expand_sum=False)
     elif isinstance(conditional_gp.solver, ConcreteIterGPSolver):
         cov = (
             linfunctl_prior.cov
