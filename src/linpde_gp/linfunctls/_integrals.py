@@ -67,7 +67,7 @@ class VectorizedLebesgueIntegral(_linfunctl.LinearFunctional):
         return integrate(self._domains.array)
 
     def __repr__(self) -> str:
-        return f"∫_{{{self._domains.array}}}"
+        return f"∫_{{{self._domains.array.shape}}}"
 
 
 class LebesgueIntegral(VectorizedLebesgueIntegral):

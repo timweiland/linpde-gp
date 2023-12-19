@@ -57,6 +57,56 @@ class ScaledLinearFunctionOperator(LinearFunctionOperator):
         return f"{self._scalar} * {self._linfuncop}"
 
 
+class FunctionScaledLinearFunctionOperator(LinearFunctionOperator):
+    def __init__(
+        self, linfuncop: LinearFunctionOperator, /, fn: pn.functions.Function
+    ) -> None:
+        self._linfuncop = linfuncop
+
+        if fn.input_shape != linfuncop.output_domain_shape:
+            raise ValueError()
+        if fn.output_shape != linfuncop.output_codomain_shape:
+            raise ValueError()
+
+        self._fn = fn
+
+        super().__init__(
+            input_shapes=self._linfuncop.input_shapes,
+            output_shapes=self._linfuncop.output_shapes,
+        )
+
+    @property
+    def linfuncop(self) -> LinearFunctionOperator:
+        return self._linfuncop
+
+    @property
+    def fn(self) -> pn.functions.Function:
+        return self._fn
+
+    @functools.singledispatchmethod
+    def __call__(self, f, /, **kwargs):
+        return self.fn * self._linfuncop(f, **kwargs)
+
+    # TODO: Only need until GPs can be scaled
+    @__call__.register
+    def _(
+        self, gp: pn.randprocs.GaussianProcess, /, **kwargs
+    ) -> pn.randprocs.GaussianProcess:
+        return super().__call__(gp, **kwargs)
+
+    def __rmul__(self, other) -> LinearFunctionOperator:
+        if isinstance(other, pn.functions.Function):
+            return FunctionScaledLinearFunctionOperator(
+                linfuncop=self._linfuncop,
+                fn=self.fn * other,
+            )
+
+        return super().__rmul__(other)
+
+    def __repr__(self) -> str:
+        return f"{self.fn} * {self._linfuncop}"
+
+
 T = TypeVar("T", bound=LinearFunctionOperator)
 
 
@@ -142,3 +192,9 @@ class CompositeLinearFunctionOperator(LinearFunctionOperator, Generic[T]):
 @LinearFunctionOperator.__matmul__.register  # pylint: disable=no-member
 def _(self, other: SumLinearFunctionOperator) -> SumLinearFunctionOperator:
     return SumLinearFunctionOperator(*(self @ summand for summand in other.summands))
+
+
+@pn.functions.Function.__mul__.register
+@pn.functions.Function.__rmul__.register
+def _(self, other: FunctionScaledLinearFunctionOperator, /) -> pn.functions.Function:
+    return FunctionScaledLinearFunctionOperator(other.linfuncop, fn=self * other.fn)

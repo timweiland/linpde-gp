@@ -71,7 +71,7 @@ class ScaledLinearFunctional(_linfunctl.LinearFunctional):
             return super().__rmul__(other)
 
     def __repr__(self) -> str:
-        return f"{self._scalar} * {self._linfunctl}"
+        return f"Scalar(shape {self._scalar.shape}) * {self._linfunctl}"
 
 
 class SumLinearFunctional(_linfunctl.LinearFunctional):

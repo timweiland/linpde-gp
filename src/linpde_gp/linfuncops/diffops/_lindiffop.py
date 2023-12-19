@@ -148,6 +148,15 @@ class LinearDifferentialOperator(LinearFunctionOperator):
         return self.to_sum()(f, argnum=argnum, **kwargs)
 
     def __rmul__(self, other) -> LinearFunctionOperator:
+        if isinstance(other, pn.functions.Function):
+            from ._arithmetic import (  # pylint: disable=import-outside-toplevel
+                FunctionScaledLinearDifferentialOperator,
+            )
+
+            return FunctionScaledLinearDifferentialOperator(
+                lindiffop=self, fn=other
+            )
+
         if np.ndim(other) == 0:
             from ._arithmetic import (  # pylint: disable=import-outside-toplevel
                 ScaledLinearDifferentialOperator,
@@ -162,3 +171,14 @@ class LinearDifferentialOperator(LinearFunctionOperator):
         self, basis: pn.functions.Function, /
     ) -> "linpde_gp.linfunctls.LinearFunctional":
         raise NotImplementedError()
+
+@pn.functions.Function.__mul__.register
+@pn.functions.Function.__rmul__.register
+def _(
+    self, other: LinearDifferentialOperator, /
+) -> pn.functions.Function:
+    from ._arithmetic import (  # pylint: disable=import-outside-toplevel
+        FunctionScaledLinearDifferentialOperator,
+    )
+
+    return FunctionScaledLinearDifferentialOperator(other, fn=self)

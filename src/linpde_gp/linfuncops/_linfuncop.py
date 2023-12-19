@@ -118,6 +118,15 @@ class LinearFunctionOperator:
         return self + -other
 
     def __rmul__(self, other) -> LinearFunctionOperator:
+        if isinstance(other, pn.functions.Function):
+            from ._arithmetic import (  # pylint: disable=import-outside-toplevel
+                FunctionScaledLinearFunctionOperator,
+            )
+
+            return FunctionScaledLinearFunctionOperator(
+                linfuncop=self, fn=other
+            )
+
         if np.ndim(other) == 0:
             from ._arithmetic import (  # pylint: disable=import-outside-toplevel
                 ScaledLinearFunctionOperator,
@@ -134,3 +143,14 @@ class LinearFunctionOperator:
         )
 
         return CompositeLinearFunctionOperator(self, other)
+
+@pn.functions.Function.__mul__.register
+@pn.functions.Function.__rmul__.register
+def _(
+    self, other: LinearFunctionOperator, /
+) -> pn.functions.Function:
+    from ._arithmetic import (  # pylint: disable=import-outside-toplevel
+        FunctionScaledLinearFunctionOperator,
+    )
+
+    return FunctionScaledLinearFunctionOperator(other, fn=self) 
