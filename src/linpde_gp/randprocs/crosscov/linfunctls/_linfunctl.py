@@ -5,7 +5,8 @@ from typing import List
 import numpy as np
 import probnum as pn
 
-from linpde_gp.linfunctls import LinearFunctional
+from linpde_gp.linops import RankOneHadamardProduct
+from linpde_gp.linfunctls import LinearFunctional, ScaledLinearFunctional
 from linpde_gp.randvars import (
     ArrayCovariance,
     Covariance,
@@ -34,6 +35,23 @@ def _(self, pv_crosscov: ScaledProcessVectorCrossCovariance, /) -> Covariance:
         reverse=not pv_crosscov.reverse
         if pv_crosscov.scale_randvar
         else pv_crosscov.reverse,
+    )
+
+
+@ScaledLinearFunctional.__call__.register  # pylint: disable=no-member
+def _(self, pv_crosscov: ScaledProcessVectorCrossCovariance, /) -> Covariance:
+    if pv_crosscov.reverse:
+        alpha = pv_crosscov.scalar
+        beta = self.scalar
+    else:
+        alpha = self.scalar
+        beta = pv_crosscov.scalar
+    cov = self.linfunctl(pv_crosscov.pv_crosscov)
+    assert isinstance(cov, Covariance)
+    return LinearOperatorCovariance(
+        RankOneHadamardProduct(alpha, beta, cov.linop),
+        cov.shape0,
+        cov.shape1,
     )
 
 
