@@ -7,7 +7,7 @@ import functools
 from ._outer_product import OuterProduct
 
 
-class CrosscovSandwichLinearOperator(linops.LinearOperator):
+class CrosscovSandwich(linops.LinearOperator):
     def __init__(
         self, crosscov: linops.LinearOperator, sandwiched_linop: OuterProduct
     ):

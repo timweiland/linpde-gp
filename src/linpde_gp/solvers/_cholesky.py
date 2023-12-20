@@ -11,7 +11,7 @@ from linpde_gp.linfunctls import (
 from linpde_gp.linops import (
     BlockMatrix2x2,
     DenseCholeskySolverLinearOperator,
-    CrosscovSandwichLinearOperator,
+    CrosscovSandwich,
 )
 from linpde_gp.randprocs.covfuncs import JaxCovarianceFunction
 from linpde_gp.randprocs.crosscov import ProcessVectorCrossCovariance
@@ -88,7 +88,7 @@ class CholeskyCovarianceFunction(DowndateCovarianceFunction):
             self._gp_params.kLas.evaluate_linop(x1) if x1 is not None else crosscov_x0
         )
         if x1 is None:
-            downdate_linop = CrosscovSandwichLinearOperator(crosscov_x0, cho_linop)
+            downdate_linop = CrosscovSandwich(crosscov_x0, cho_linop)
         else:
             downdate_linop = crosscov_x0 @ cho_linop @ crosscov_x1.T
         return SumLinearOperator(self._gp_params.prior.cov.linop(x0, x1), -downdate_linop, expand_sum=False)
