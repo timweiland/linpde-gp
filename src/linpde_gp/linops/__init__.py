@@ -10,5 +10,6 @@ from ._outer_product import (
     OuterProductMatrix,
     ExtendedOuterProductMatrix,
 )
+from ._rank_one_hadamard import RankOneHadamardProduct
 from ._shape_alignment import ShapeAlignmentLinearOperator
 from ._sparsity_wrapper import SparsityWrapper
