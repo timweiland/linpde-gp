@@ -7,9 +7,10 @@ from ._dense_cholesky_solver import DenseCholeskySolverLinearOperator
 from ._dynamic_dense_matrix import DynamicDenseMatrix
 from ._keops import KeOpsLinearOperator
 from ._outer_product import (
-    OuterProductMatrix,
-    ExtendedOuterProductMatrix,
+    OuterProduct,
+    ExtendedOuterProduct,
 )
 from ._rank_one_hadamard import RankOneHadamardProduct
 from ._shape_alignment import ShapeAlignmentLinearOperator
 from ._sparsity_wrapper import SparsityWrapper
+from ._utils import distribute_product

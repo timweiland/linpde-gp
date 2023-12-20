@@ -5,7 +5,7 @@ from probnum.linops._vectorize import vectorize_matmat
 import functools
 import torch
 
-from ._outer_product import OuterProductMatrix
+from ._outer_product import OuterProduct
 
 
 class InverseTriangularMatrix(linops.LinearOperator):
@@ -27,7 +27,7 @@ class InverseTriangularMatrix(linops.LinearOperator):
         return InverseTriangularMatrix(self._U.T, lower=not self._lower)
 
 
-class DenseCholeskySolverLinearOperator(OuterProductMatrix):
+class DenseCholeskySolverLinearOperator(OuterProduct):
     def __init__(self, linop: linops.LinearOperator):
         if not linop.is_symmetric or not linop.is_positive_definite:
             raise ValueError(

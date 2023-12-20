@@ -4,12 +4,12 @@ from scipy.linalg import solve_triangular
 import torch
 import functools
 
-from ._outer_product import OuterProductMatrix
+from ._outer_product import OuterProduct
 
 
 class CrosscovSandwichLinearOperator(linops.LinearOperator):
     def __init__(
-        self, crosscov: linops.LinearOperator, sandwiched_linop: OuterProductMatrix
+        self, crosscov: linops.LinearOperator, sandwiched_linop: OuterProduct
     ):
         self._crosscov = crosscov
         self._sandwiched_linop = sandwiched_linop

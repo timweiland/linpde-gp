@@ -9,7 +9,7 @@ import operator
 from ._block import BlockMatrix
 
 
-class OuterProductMatrix(pn.linops.LinearOperator):
+class OuterProduct(pn.linops.LinearOperator):
     """
     An outer product U @ V.T.
 
@@ -42,7 +42,7 @@ class OuterProductMatrix(pn.linops.LinearOperator):
         return self._U @ (self._V.T @ x)
 
     def _transpose(self) -> pn.linops.LinearOperator:
-        return OuterProductMatrix(self._V, self._U)
+        return OuterProduct(self._V, self._U)
 
     def _diagonal(self) -> np.ndarray:
         if self.is_symmetric:
@@ -59,13 +59,13 @@ class OuterProductMatrix(pn.linops.LinearOperator):
         return torch.sum(mat, dim=-1).cpu().numpy()
 
     def __add__(self, other: BinaryOperandType) -> LinearOperator:
-        if isinstance(other, OuterProductMatrix):
-            return SumOuterProductMatrix(self, other)
+        if isinstance(other, OuterProduct):
+            return SumOuterProduct(self, other)
         return super().__add__(other)
 
 
-class SumOuterProductMatrix(OuterProductMatrix):
-    def __init__(self, *Ls: OuterProductMatrix):
+class SumOuterProduct(OuterProduct):
+    def __init__(self, *Ls: OuterProduct):
         self._block_U = BlockMatrix([[L.U for L in Ls]])
         self._block_V = BlockMatrix([[L.V for L in Ls]])
         self._Ls = tuple(Ls)
@@ -76,7 +76,7 @@ class SumOuterProductMatrix(OuterProductMatrix):
         super().__init__(self._block_U)
 
     @property
-    def Ls(self) -> tuple[OuterProductMatrix]:
+    def Ls(self) -> tuple[OuterProduct]:
         return self._Ls
 
     @property
@@ -94,10 +94,10 @@ class SumOuterProductMatrix(OuterProductMatrix):
         return functools.reduce(operator.add, (summand @ x for summand in self._Ls))
 
     def _transpose(self) -> pn.linops.LinearOperator:
-        return SumOuterProductMatrix(*[L.T for L in self._Ls])
+        return SumOuterProduct(*[L.T for L in self._Ls])
 
 
-class ExtendedOuterProductMatrix(OuterProductMatrix):
+class ExtendedOuterProduct(OuterProduct):
     """
     An extended outer product matrix.
 
@@ -112,7 +112,7 @@ class ExtendedOuterProductMatrix(OuterProductMatrix):
         ValueError: If the target shape is not square or if it is smaller than the shape of `L`.
     """
 
-    def __init__(self, L: OuterProductMatrix, target_shape: ShapeLike):
+    def __init__(self, L: OuterProduct, target_shape: ShapeLike):
         self._L = L
         assert len(target_shape) == 2
         if target_shape[0] != target_shape[1]:
