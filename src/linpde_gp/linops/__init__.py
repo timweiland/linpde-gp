@@ -1,6 +1,6 @@
 from probnum.linops import *
 
-from ._block import BlockMatrix, BlockMatrix2x2
+from ._block import BlockMatrix, BlockMatrix2x2, ProductBlockMatrix
 from ._concatenated import ConcatenatedLinearOperator
 from ._crosscov_sandwich import CrosscovSandwichLinearOperator
 from ._dense_cholesky_solver import DenseCholeskySolverLinearOperator

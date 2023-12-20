@@ -385,3 +385,34 @@ class BlockMatrix2x2(pn.linops.LinearOperator):
         else:
             D_blocks = (self.D,)
         return A_blocks + D_blocks
+
+
+class ProductBlockMatrix(BlockMatrix):
+    """A block matrix that represents the product of two block matrices.
+
+    TODO: Add tests.
+
+    Parameters
+    ----------
+    A : BlockMatrix
+        The first block matrix.
+    B : BlockMatrix
+        The second block matrix.
+    """
+
+    def __init__(self, A: BlockMatrix, B: BlockMatrix):
+        self._A = A
+        self._B = B
+        if self._A.blocks.shape[1] != self._B.blocks.shape[0]:
+            raise ValueError("Block shapes do not match.")
+        blocks = np.empty(
+            (self._A.blocks.shape[0], self._B.blocks.shape[1]), dtype=object
+        )
+        for i, j in np.ndindex(blocks.shape):
+            blocks[i, j] = pn.linops.Zero(
+                (self._A.blocks[i, 0].shape[0], self._B.blocks[0, j].shape[1]),
+                self._A.blocks[i, 0].dtype,
+            )
+            for k in range(self._A.blocks.shape[1]):
+                blocks[i, j] += self._A.blocks[i, k] @ self._B.blocks[k, j]
+        super().__init__(blocks.tolist())
