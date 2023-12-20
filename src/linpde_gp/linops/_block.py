@@ -4,6 +4,9 @@ from typing import List
 import numpy as np
 import probnum as pn
 from probnum.typing import LinearOperatorLike
+
+from ._sparsity_wrapper import SparsityWrapper
+
 import torch
 
 pn.config.register(
@@ -26,7 +29,7 @@ class BlockMatrix(pn.linops.LinearOperator):
         Shapes must be valid such that creating a block matrix is possible.
     """
 
-    def __init__(self, blocks: List[List[LinearOperatorLike]]):
+    def __init__(self, blocks: List[List[LinearOperatorLike]], cache_transpose=True):
         self._blocks = [[pn.linops.aslinop(x) for x in sub_list] for sub_list in blocks]
         self._blocks = np.block(self._blocks)
         dtype = self._blocks[0, 0].dtype
@@ -45,6 +48,8 @@ class BlockMatrix(pn.linops.LinearOperator):
         self._split_indices = np.array(
             tuple(block.shape[1] for block in self._blocks[0, :])
         ).cumsum()[:-1]
+        self._cached_transpose = None
+        self._cache_transpose = cache_transpose
 
     @property
     def blocks(self) -> np.ndarray:
@@ -63,7 +68,7 @@ class BlockMatrix(pn.linops.LinearOperator):
             row_wise_results.append(
                 np.sum(
                     tuple(
-                        block @ cur_x
+                        SparsityWrapper(block) @ cur_x
                         for block, cur_x in zip(self.blocks[i, :], x_split)
                     ),
                     axis=0,
@@ -88,19 +93,32 @@ class BlockMatrix(pn.linops.LinearOperator):
             )
         return torch.cat(row_wise_results, axis=-2)
 
-    @functools.lru_cache
     def _transpose(self) -> "BlockMatrix":
-        blocks_transposed = np.empty((self.blocks.shape[1], self.blocks.shape[0]), dtype=object)
-        #blocks_transposed = np.copy(self.blocks.T)
+        if self._cached_transpose:
+            return self._cached_transpose
+        blocks_transposed = np.empty(
+            (self.blocks.shape[1], self.blocks.shape[0]), dtype=object
+        )
+        # blocks_transposed = np.copy(self.blocks.T)
         for i, j in np.ndindex(blocks_transposed.shape):
             blocks_transposed[i, j] = self.blocks[j, i].T
-        return BlockMatrix(blocks_transposed.tolist())
+        res = BlockMatrix(blocks_transposed.tolist())
+        if self._cache_transpose:
+            self._cached_transpose = res
+        return res
 
     def _todense(self) -> np.ndarray:
         blocks_dense = np.copy(self.blocks)
         for i, j in np.ndindex(blocks_dense.shape):
             blocks_dense[i, j] = blocks_dense[i, j].todense()
         return np.block(blocks_dense.tolist())
+
+    def _diagonal(self) -> np.ndarray:
+        # Concatenate the diagonals of the blocks on the diagonal
+        return np.concatenate(
+            tuple(block.diagonal() for block in self.blocks.diagonal()),
+            axis=-1,
+        )
 
 
 # TODO: Inherit from `BlockMatrix`

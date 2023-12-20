@@ -11,3 +11,4 @@ from ._outer_product import (
     ExtendedOuterProductMatrix,
 )
 from ._shape_alignment import ShapeAlignmentLinearOperator
+from ._sparsity_wrapper import SparsityWrapper
