@@ -1,4 +1,5 @@
 from ._arithmetic import (
+    FunctionScaledProcessVectorCrossCovariance,
     LinOpProcessVectorCrossCovariance,
     ScaledProcessVectorCrossCovariance,
     SumProcessVectorCrossCovariance,

@@ -15,6 +15,7 @@ from linpde_gp.linfunctls.projections.l2 import (
     L2Projection_UnivariateLinearInterpolationBasis,
 )
 from linpde_gp.randprocs import covfuncs
+from linpde_gp.randprocs import crosscov
 
 from .._utils import validate_covfunc_transformation
 
@@ -162,7 +163,9 @@ def covfunc_lebesgue_integral(
     validate_covfunc_transformation(self, k, argnum)
 
     try:
-        return super(linfunctls.VectorizedLebesgueIntegral, self).__call__(k, argnum=argnum)
+        return super(linfunctls.VectorizedLebesgueIntegral, self).__call__(
+            k, argnum=argnum
+        )
     except NotImplementedError:
         from ...crosscov.linfunctls.integrals import (  # pylint: disable=import-outside-toplevel
             CovarianceFunction_Identity_LebesgueIntegral,
@@ -171,6 +174,40 @@ def covfunc_lebesgue_integral(
         return CovarianceFunction_Identity_LebesgueIntegral(
             k, self, reverse=(argnum == 0)
         )
+
+
+@linfunctls.VectorizedLebesgueIntegral.__call__.register  # pylint: disable=no-member
+def _(
+    self,
+    k: covfuncs.FunctionScaledCovarianceFunction,
+    /,
+    *,
+    argnum: int = 0,
+):
+    print("Integrating a FunctionScaledCovarianceFunction")
+    validate_covfunc_transformation(self, k, argnum)
+
+    centers = (self.domains.pure_array[..., 0] + self.domains.pure_array[..., 1]) / 2
+    print(centers.shape)
+
+    fn = k.fn1 if argnum == 1 else k.fn0
+
+    if fn is None:
+        if other_fn is None:
+            return self(k.covfunc, argnum=argnum)
+        return crosscov.FunctionScaledProcessVectorCrossCovariance(
+            self(k.covfunc, argnum=argnum), other_fn
+        )
+
+    other_fn = k.fn0 if argnum == 1 else k.fn1
+    center_vals = fn(centers)
+
+    if other_fn is None:
+        return center_vals * self(k.covfunc, argnum=argnum)
+
+    return center_vals * crosscov.FunctionScaledProcessVectorCrossCovariance(
+        self(k.covfunc, argnum=argnum), other_fn
+    )
 
 
 @linfunctls.VectorizedLebesgueIntegral.__call__.register  # pylint: disable=no-member

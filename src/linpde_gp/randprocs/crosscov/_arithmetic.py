@@ -84,6 +84,51 @@ class ScaledProcessVectorCrossCovariance(_pv_crosscov.ProcessVectorCrossCovarian
         return f"{self._scalar} * {self._pv_crosscov}"
 
 
+class FunctionScaledProcessVectorCrossCovariance(
+    _pv_crosscov.ProcessVectorCrossCovariance
+):
+    def __init__(
+        self,
+        pv_crosscov: _pv_crosscov.ProcessVectorCrossCovariance,
+        fn: pn.functions.Function,
+    ):
+        self._pv_crosscov = pv_crosscov
+
+        if fn.input_shape != pv_crosscov.randproc_input_shape:
+            raise ValueError()
+        if fn.output_shape != pv_crosscov.randproc_output_shape:
+            raise ValueError()
+
+        self._fn = fn
+
+        super().__init__(
+            randproc_input_shape=pv_crosscov.randproc_input_shape,
+            randproc_output_shape=pv_crosscov.randproc_output_shape,
+            randvar_shape=pv_crosscov.randvar_shape,
+            reverse=pv_crosscov.reverse,
+        )
+
+    @property
+    def pv_crosscov(self) -> _pv_crosscov.ProcessVectorCrossCovariance:
+        return self._pv_crosscov
+
+    @property
+    def fn(self) -> pn.functions.Function:
+        return self._fn
+
+    def _evaluate(self, x: np.ndarray) -> np.ndarray:
+        return self._fn(x) * self._pv_crosscov(x)
+
+    def _evaluate_jax(self, x: jnp.ndarray) -> jnp.ndarray:
+        return self._fn(x) * self._pv_crosscov.jax(x)
+
+    def _evaluate_linop(self, x: np.ndarray) -> pn.linops.LinearOperator:
+        return NotImplemented
+
+    def __repr__(self) -> str:
+        return f"{self._fn} * {self._pv_crosscov}"
+
+
 class SumProcessVectorCrossCovariance(_pv_crosscov.ProcessVectorCrossCovariance):
     def __init__(self, *pv_crosscovs: _pv_crosscov.ProcessVectorCrossCovariance):
         self._pv_crosscovs = tuple(pv_crosscovs)
@@ -195,8 +240,12 @@ class TensorProductProcessVectorCrossCovariance(
             )
             x_batch_shape = x.shape[: x.ndim - self.randproc_input_ndim]
             if self.reverse:
-                return res.reshape(self.randvar_shape + x_batch_shape + self.randproc_output_shape)
-            return res.reshape(x_batch_shape + self.randproc_output_shape + self.randvar_shape)
+                return res.reshape(
+                    self.randvar_shape + x_batch_shape + self.randproc_output_shape
+                )
+            return res.reshape(
+                x_batch_shape + self.randproc_output_shape + self.randvar_shape
+            )
         return prod(
             pv_crosscov(x[..., dim])
             for dim, pv_crosscov in enumerate(self._pv_crosscovs)

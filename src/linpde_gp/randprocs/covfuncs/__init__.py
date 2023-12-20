@@ -1,3 +1,4 @@
+from ._arithmetic_fallbacks import FunctionScaledCovarianceFunction
 from ._expquad import ExpQuad
 from ._galerkin import GalerkinCovarianceFunction
 from ._independent_multi_output import IndependentMultiOutputCovarianceFunction

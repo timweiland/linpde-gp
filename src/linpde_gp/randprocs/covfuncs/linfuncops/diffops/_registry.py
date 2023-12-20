@@ -72,6 +72,59 @@ def _(
     return _tensor_product.TensorProduct_LinDiffOp_LinDiffOp(k.k, L0=D0, L1=D1)
 
 
+@diffops.FunctionScaledLinearDifferentialOperator.__call__.register  # pylint: disable=no-member
+def _(
+    self,
+    k: pn_covfuncs.CovarianceFunction,
+    /,
+    *,
+    argnum: int = 0,
+):
+    validate_covfunc_transformation(self, k, argnum)
+    fn0, fn1 = None, None
+    if argnum == 0:
+        fn0 = self.fn
+    else:
+        fn1 = self.fn
+
+    return covfuncs.FunctionScaledCovarianceFunction(
+        self.lindiffop(k, argnum=argnum),
+        fn0=fn0,
+        fn1=fn1,
+    )
+
+
+@diffops.FunctionScaledLinearDifferentialOperator.__call__.register  # pylint: disable=no-member
+def _(
+    self,
+    k: covfuncs.FunctionScaledCovarianceFunction,
+    /,
+    *,
+    argnum: int = 0,
+):
+    validate_covfunc_transformation(self, k, argnum)
+    fn0, fn1 = None, None
+    if argnum == 0:
+        fn0 = self.fn
+        if k.fn0 is not None:
+            fn0 = fn0 * k.fn0
+    else:
+        fn1 = self.fn
+        if k.fn1 is not None:
+            fn1 = fn1 * k.fn1
+
+    if fn0 is None:
+        fn0 = k.fn0
+    if fn1 is None:
+        fn1 = k.fn1
+
+    return covfuncs.FunctionScaledCovarianceFunction(
+        self.lindiffop(k.covfunc, argnum=argnum),
+        fn0=fn0,
+        fn1=fn1,
+    )
+
+
 ########################################################################################
 # Partial Derivative ###################################################################
 ########################################################################################
