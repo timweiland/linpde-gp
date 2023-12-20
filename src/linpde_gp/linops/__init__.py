@@ -5,5 +5,8 @@ from ._concatenated import ConcatenatedLinearOperator
 from ._crosscov_sandwich import CrosscovSandwichLinearOperator
 from ._dense_cholesky_solver import DenseCholeskySolverLinearOperator
 from ._keops import KeOpsLinearOperator
-from ._rank_factorized import LowRankProduct, RankFactorizedMatrix
+from ._outer_product import (
+    OuterProductMatrix,
+    ExtendedOuterProductMatrix,
+)
 from ._shape_alignment import ShapeAlignmentLinearOperator
