@@ -91,7 +91,35 @@ class CholeskyCovarianceFunction(DowndateCovarianceFunction):
             downdate_linop = CrosscovSandwich(crosscov_x0, cho_linop)
         else:
             downdate_linop = crosscov_x0 @ cho_linop @ crosscov_x1.T
-        return SumLinearOperator(self._gp_params.prior.cov.linop(x0, x1), -downdate_linop, expand_sum=False)
+        return SumLinearOperator(
+            self._gp_params.prior.cov.linop(x0, x1), -downdate_linop, expand_sum=False
+        )
+
+    def sample(self, X_test: ArrayLike) -> np.ndarray:
+        k_XX_cho = self._gp_params.prior.cov.linop(X_test).cholesky()
+        kL_X = self._gp_params.kLas.evaluate_linop(X_test)
+        kL_X_dense = kL_X.todense()
+        k_XX_inv_kL_X = self._gp_params.prior.cov.linop(X_test).inv() @ kL_X_dense
+        S = self._gp_params.prior_gram.todense() - kL_X_dense.T @ k_XX_inv_kL_X
+        S_cho, _ = cho_factor(S, lower=True)
+        S_cho = linops.aslinop(S_cho)
+        S_cho.is_lower_triangular = True
+
+        cross_term = kL_X.T @ k_XX_cho.T.inv()
+        L_block = BlockMatrix2x2(k_XX_cho, None, cross_term, S_cho)
+        U = np.random.normal(size=(L_block.shape[1],))
+        XY_transformed = L_block @ U.flatten()
+        X_transformed, Y_transformed = (
+            XY_transformed[: k_XX_cho.shape[1]],
+            XY_transformed[k_XX_cho.shape[1] :],
+        )
+
+        Z = np.concatenate(self._gp_params.Ys, axis=-1)
+        final_sample = X_transformed + kL_X @ self._gp_params.prior_gram.solve(
+            Z - Y_transformed
+        )
+        batch_dim_size = len(X_test.shape) - self.input_ndim
+        return final_sample.reshape(X_test.shape[:batch_dim_size] + self.output_shape_0)
 
 
 class CholeskyCrossCovariance(ProcessVectorCrossCovariance):
