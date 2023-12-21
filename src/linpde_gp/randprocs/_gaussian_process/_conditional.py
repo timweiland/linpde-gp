@@ -38,6 +38,8 @@ pn.config.register(
     "Default solver for GP conditioning in linpde-gp.",
 )
 
+import torch
+
 
 class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
     @classmethod
@@ -53,6 +55,9 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
         solver: GPSolver = None,
         prev_representer_weights: np.ndarray | None = None,
         prior_inverse_approx: pn.linops.LinearOperator | None = None,
+        prior_K_hat_inverse_approx: pn.linops.LinearOperator | None = None,
+        prior_action_matrix: np.ndarray | None = None,
+        prior_S_LKL_S: pn.linops.LinearOperator | None = None,
     ):
         if solver is None:
             solver = pn.config.default_solver_linpde_gp
@@ -77,6 +82,9 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
             solver=solver,
             prev_representer_weights=prev_representer_weights,
             prior_inverse_approx=prior_inverse_approx,
+            prior_K_hat_inverse_approx=prior_K_hat_inverse_approx,
+            prior_action_matrix=prior_action_matrix,
+            prior_S_LKL_S=prior_S_LKL_S,
         )
 
     def __init__(
@@ -92,7 +100,10 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
         full_representer_weights: np.ndarray | None = None,
         prev_representer_weights: np.ndarray | None = None,
         prior_inverse_approx: pn.linops.LinearOperator | None = None,
+        prior_K_hat_inverse_approx: pn.linops.LinearOperator | None = None,
         prior_marginal_uncertainty: np.ndarray | None = None,
+        prior_action_matrix: np.ndarray | None = None,
+        prior_S_LKL_S: pn.linops.LinearOperator | None = None,
     ):
         self._prior = prior
 
@@ -104,7 +115,19 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
 
         self._gram_matrix = gram_matrix
         inference_params = GPInferenceParams(
-            prior, gram_matrix, Ys, Ls, bs, kLas, prev_representer_weights, full_representer_weights, prior_inverse_approx, prior_marginal_uncertainty,
+            prior,
+            gram_matrix,
+            Ys,
+            Ls,
+            bs,
+            kLas,
+            prev_representer_weights,
+            full_representer_weights,
+            prior_inverse_approx,
+            prior_K_hat_inverse_approx,
+            prior_marginal_uncertainty,
+            prior_action_matrix,
+            prior_S_LKL_S,
         )
         self._solver = solver.get_concrete_solver(inference_params)
         self._abstract_solver = solver
@@ -253,7 +276,7 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
     ):
         if solver is None:
             solver = pn.config.default_solver_linpde_gp
-        
+
         Y, L, b, kLa, gram = self._preprocess_observations(
             prior=self._prior,
             Y=Y,
@@ -287,9 +310,24 @@ class ConditionalGaussianProcess(pn.randprocs.GaussianProcess):
             kLas=kLas,
             gram_matrix=gram_matrix,
             solver=solver,
-            prev_representer_weights=self.representer_weights if fresh_start else self._solver._gp_params.prev_representer_weights,
-            prior_inverse_approx=self.solver.inverse_approximation if fresh_start else self._solver._gp_params.prior_inverse_approx,
-            prior_marginal_uncertainty=prior_marginal_uncertainty if fresh_start else self._solver._gp_params.prior_marginal_uncertainty,
+            prev_representer_weights=self.representer_weights
+            if fresh_start
+            else self._solver._gp_params.prev_representer_weights,
+            prior_inverse_approx=self.solver.inverse_approximation
+            if fresh_start
+            else self._solver._gp_params.prior_inverse_approx,
+            prior_K_hat_inverse_approx=self.solver.K_hat_inverse_approximation
+            if fresh_start
+            else self._solver._gp_params.prior_K_hat_inverse_approx,
+            prior_marginal_uncertainty=prior_marginal_uncertainty
+            if fresh_start
+            else self._solver._gp_params.prior_marginal_uncertainty,
+            prior_action_matrix=self.solver.action_matrix
+            if fresh_start
+            else self._solver._gp_params.prior_action_matrix,
+            prior_S_LKL_S=self.solver.S_LKL_S
+            if fresh_start
+            else self._solver._gp_params.prior_S_LKL_S,
         )
 
     @classmethod
@@ -485,6 +523,10 @@ def _(
 ) -> ConditionalGaussianProcess.Mean:
     L_prior_mean = self(mean._prior_mean)
     LkL = self(mean._kLas).linop
+
+    representer_weights = mean._solver.compute_representer_weights()
+    if isinstance(representer_weights, torch.Tensor):
+        L_prior_mean = torch.tensor(L_prior_mean, device=representer_weights.device)
 
     return L_prior_mean + (LkL @ mean._solver.compute_representer_weights()).reshape(
         L_prior_mean.shape

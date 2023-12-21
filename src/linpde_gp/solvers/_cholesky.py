@@ -203,10 +203,26 @@ class ConcreteCholeskySolver(ConcreteGPSolver):
         if not self.dense:
             raise ValueError("Solver is not dense")
         return DenseCholeskySolverLinearOperator(self._gp_params.prior_gram)
-    
+
     @property
     def inverse_approximation(self) -> linops.LinearOperator:
         return self.dense_linop
+
+    @property
+    def K_hat_inverse_approximation(self) -> linops.LinearOperator:
+        return linops.Identity(
+            self._gp_params.prior_gram.shape, self._gp_params.prior_gram.dtype
+        )
+
+    @property
+    def action_matrix(self) -> linops.LinearOperator:
+        return linops.Identity(
+            self._gp_params.prior_gram.shape, self._gp_params.prior_gram.dtype
+        )
+
+    @property
+    def S_LKL_S(self) -> linops.LinearOperator:
+        return self._gp_params.prior_gram
 
     def _compute_representer_weights(self):
         if self.dense:
@@ -294,9 +310,13 @@ def _(
     L2_kLas = self(crosscov._gp_params.kLas).linop
     L1_kLas = crosscov._L_kLas
     if crosscov.reverse:
-        res = SumLinearOperator(L1_L2_prior_cov, -L1_kLas @ crosscov.cho_linop @ L2_kLas.T, expand_sum=False)
+        res = SumLinearOperator(
+            L1_L2_prior_cov, -L1_kLas @ crosscov.cho_linop @ L2_kLas.T, expand_sum=False
+        )
     else:
-        res = SumLinearOperator(L1_L2_prior_cov, -L2_kLas @ crosscov.cho_linop @ L1_kLas.T, expand_sum=False)
+        res = SumLinearOperator(
+            L1_L2_prior_cov, -L2_kLas @ crosscov.cho_linop @ L1_kLas.T, expand_sum=False
+        )
     return LinearOperatorCovariance(
         res,
         shape0=crosscov.randvar_shape if crosscov.reverse else self.output_shape,

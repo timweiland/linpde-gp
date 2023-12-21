@@ -25,7 +25,10 @@ class GPInferenceParams:
     prev_representer_weights: Optional[np.ndarray]
     full_representer_weights: Optional[np.ndarray]
     prior_inverse_approx: pn.linops.LinearOperator | None = None
+    prior_K_hat_inverse_approx: pn.linops.LinearOperator | None = None
     prior_marginal_uncertainty: np.ndarray | None = None
+    prior_action_matrix: np.ndarray | None = None
+    prior_S_LKL_S: pn.linops.LinearOperator | None = None
 
 
 class ConcreteGPSolver(abc.ABC):
@@ -69,10 +72,20 @@ class ConcreteGPSolver(abc.ABC):
     @abc.abstractmethod
     def posterior_cov(self) -> JaxCovarianceFunction:
         raise NotImplementedError
-    
+
     @property
     @abc.abstractmethod
     def inverse_approximation(self) -> pn.linops.LinearOperator:
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def K_hat_inverse_approximation(self) -> pn.linops.LinearOperator:
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    def action_matrix(self) -> np.ndarray:
         raise NotImplementedError
 
     def _get_residual(self, Y, L, b):
