@@ -1,8 +1,10 @@
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Iterable
 
 import jax.numpy as jnp
 import numpy as np
+from probnum import linops
+from probnum.typing import ArrayLike
 from tqdm.notebook import tqdm
 import torch
 
@@ -12,10 +14,16 @@ from linpde_gp.linfunctls import (
     _EvaluationFunctional,
 )
 from linpde_gp.linops import (
+    BlockMatrix,
+    ProductBlockMatrix,
+    BlockMatrix2x2,
+    ExtendedOuterProduct,
+    OuterProduct,
     LinearOperator,
-    LowRankProduct,
-    RankFactorizedMatrix,
-    BlockDiagonalMatrix,
+    OuterProduct,
+    DynamicDenseMatrix,
+    ShapeAlignmentLinearOperator,
+    CrosscovSandwich,
 )
 from linpde_gp.randprocs.covfuncs import JaxCovarianceFunction
 from linpde_gp.randprocs.crosscov import ProcessVectorCrossCovariance
@@ -26,6 +34,7 @@ from .._solver_benchmarker import SolverBenchmarker
 from ..covfuncs import DowndateCovarianceFunction
 from ._solver_state import SolverState
 from .policies import CGPolicy, Policy
+from .loggers import Logger, TQDMLogger
 from .stopping_criteria import (
     IterationStoppingCriterion,
     ResidualNormStoppingCriterion,
@@ -33,12 +42,31 @@ from .stopping_criteria import (
 )
 
 import probnum as pn
+from scipy.linalg import cho_factor, cho_solve
+from scipy.linalg import svd
+
+
+def hutch_plusplus(A, k=100):
+    """
+    Hutch++ trace estimator for symmetric matrices.
+    """
+    # Sample S iid with entries in {+1, -1}
+    S = np.random.choice([-1, 1], size=(A.shape[0], k))
+    G = np.random.choice([-1, 1], size=(A.shape[0], k))
+    Q, _ = np.linalg.qr(A @ S)
+    Z = G - Q @ Q.T @ G
+    return np.trace(Q.T @ (A @ Q)) + np.trace(Z.T @ (A @ Z)) / k
 
 
 class IterGPCovarianceFunction(DowndateCovarianceFunction):
-    def __init__(self, gp_params: GPInferenceParams, solver_state: SolverState):
+    def __init__(
+        self,
+        gp_params: GPInferenceParams,
+        solver_state: SolverState,
+    ):
         self._gp_params = gp_params
         self._solver_state = solver_state
+        self._L_block = None
         super().__init__(gp_params.prior.cov)
 
     def _downdate(self, x0: np.ndarray, x1: np.ndarray | None) -> np.ndarray:
@@ -89,6 +117,76 @@ class IterGPCovarianceFunction(DowndateCovarianceFunction):
 
     def _downdate_jax(self, x0: jnp.ndarray, x1: jnp.ndarray | None) -> jnp.ndarray:
         pass
+
+    def linop(self, x0: ArrayLike, x1: ArrayLike | None = None) -> LinearOperator:
+        crosscov_x0 = self._gp_params.kLas.evaluate_linop(x0)
+        crosscov_x1 = (
+            self._gp_params.kLas.evaluate_linop(x1) if x1 is not None else crosscov_x0
+        )
+        if x1 is None:
+            L = self._gp_params.prior.cov.linop(x0) - CrosscovSandwich(
+                crosscov_x0, self._solver_state.inverse_approx
+            )
+            return L
+        L = self._gp_params.prior.cov.linop(x0, x1) - (
+            crosscov_x0 @ self._solver_state.inverse_approx @ crosscov_x1.T
+        )
+        return L
+
+    def sample(self, X_test: ArrayLike) -> np.ndarray:
+        if self._L_block is None:
+            k_XX = self._gp_params.prior.cov.linop(X_test)
+            k_XX_cho = k_XX.cholesky()
+            kL_X = self._gp_params.kLas.evaluate_linop(X_test)
+            self._kL_X_aligned = ShapeAlignmentLinearOperator(
+                self._gp_params.kLas, X_test
+            )
+
+            Si = self._solver_state.action_matrix
+            print("Computing kL_X_action...")
+            kL_X_action = kL_X @ Si.todense()
+            print("Done.")
+            Si_LkL_Si = self._solver_state.S_LKL_S
+            print("Computed Si_LkL_Si")
+            self._Si_LkL_Si_cho = cho_factor(
+                Si_LkL_Si + 1e-9 * np.eye(Si_LkL_Si.shape[1])
+            )
+
+            cross_term = (k_XX_cho.inv() @ kL_X_action).T
+            print("Cross term shape:" + str(cross_term.shape))
+
+            S = Si_LkL_Si - cross_term @ cross_term.T
+            print("Computed S")
+            S_cho, _ = cho_factor(S + 1e-9 * np.eye(S.shape[1]), lower=True)
+            S_cho = np.tril(S_cho)
+            S_cho = linops.aslinop(S_cho)
+            S_cho.is_lower_triangular = True
+            print("Computed cho factor of S")
+
+            self._L_block = BlockMatrix2x2(k_XX_cho, None, cross_term, S_cho)
+
+        Si = self._solver_state.action_matrix
+        U = np.random.normal(size=(self._L_block.shape[1],))
+        XY_transformed = self._L_block @ U.flatten()
+        X_transformed, Y_transformed = (
+            XY_transformed[: self._L_block.A.shape[1]],
+            XY_transformed[self._L_block.A.shape[1] :],
+        )
+
+        X_transformed_reshaped = X_transformed.reshape(
+            self._gp_params.prior.output_shape + (-1,), order="C"
+        )
+        X_transformed_reshaped = np.moveaxis(X_transformed_reshaped, 0, -1)
+        X_transformed_reshaped = X_transformed_reshaped.reshape(-1, order="C")
+
+        Z = Si.T @ np.concatenate(self._gp_params.Ys, axis=-1)
+        final_sample = X_transformed_reshaped + self._kL_X_aligned @ Si @ cho_solve(
+            self._Si_LkL_Si_cho, Z - Y_transformed
+        )
+        batch_dim_size = len(X_test.shape) - self.input_ndim
+        return final_sample.reshape(
+            X_test.shape[:batch_dim_size] + self._gp_params.prior.output_shape
+        )
 
 
 class IterGPCrossCovariance(ProcessVectorCrossCovariance):
@@ -157,20 +255,24 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
         benchmark_folder: str | None = None,
         use_torch=True,
         compute_residual_directly=False,
-        store_K_hat_inverse_approx=False,
-        preconditioner=None,
-        inverse_approx_initial_capacity=1430,
+        store_K_hat_inverse_approx=True,
+        num_actions_compressed=100,
+        num_actions_explorative=10,
+        loggers: Iterable[Logger] = None,
     ):
         self.policy = policy.get_concrete_policy(gp_params)
         self.stopping_criterion = stopping_criterion.get_concrete_criterion(gp_params)
-        self.solver_state = SolverState(0, None, None, None, None, gp_params, None)
+        self.solver_state = SolverState(
+            0, None, None, None, None, None, gp_params, None, None, None, None
+        )
         self.eval_points = eval_points
         self.benchmark_folder = benchmark_folder
         self.use_torch = use_torch
         self.compute_residual_directly = compute_residual_directly
         self.store_K_hat_inverse_approx = store_K_hat_inverse_approx
-        self.preconditioner = preconditioner
-        self.inverse_approx_initial_capacity = inverse_approx_initial_capacity
+        self.num_actions_compressed = num_actions_compressed
+        self.num_actions_explorative = num_actions_explorative
+        self.loggers = loggers
         super().__init__(gp_params)
 
     def _compute_representer_weights(self):
@@ -183,7 +285,7 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
         self.solver_state.representer_weights = (
             np.zeros((K_hat.shape[1]))
             if not self.use_torch
-            else torch.zeros((K_hat.shape[1]), dtype=torch.float64).to(device)
+            else torch.zeros((K_hat.shape[1]), dtype=torch.float64, device=device)
         )
         residual_norm = (
             np.linalg.norm(residual, ord=2)
@@ -192,23 +294,56 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
         )
         self.solver_state.predictive_residual = torch.clone(residual)
         self.solver_state.relative_error = 1.0
-        min_error = 1.0
 
-        cur_inverse_approx_term = RankFactorizedMatrix(
-            None, K_hat.shape, np.float64, self.inverse_approx_initial_capacity
+        # avg_crosscov_weights = torch.zeros_like(self.solver_state.representer_weights)
+        max_num_actions = self.num_actions_compressed + self.num_actions_explorative
+
+        search_directions = DynamicDenseMatrix(
+            (K_hat.shape[0], max_num_actions), np.float64
         )
-
+        cur_inverse_approx_term = OuterProduct(search_directions)
         self.solver_state.inverse_approx = cur_inverse_approx_term
 
-        new_start = 0
-        if self._gp_params.prior_inverse_approx is not None:
-            desired_dim = K_hat.shape[1]
-            prior_dim = self._gp_params.prior_inverse_approx.shape[1]
-            new_start = prior_dim
-            self.solver_state.inverse_approx += BlockDiagonalMatrix(
-                self._gp_params.prior_inverse_approx,
-                pn.linops.Zero((desired_dim - prior_dim, desired_dim - prior_dim)),
+        cur_action_matrix = DynamicDenseMatrix(
+            (K_hat.shape[0], max_num_actions), K_hat.dtype
+        )
+
+        K_hat_search_directions = DynamicDenseMatrix(
+            (K_hat.shape[0], max_num_actions), np.float64
+        )
+
+        if self.store_K_hat_inverse_approx:
+            cur_K_hat_inverse_approx_term = OuterProduct(
+                K_hat_search_directions, search_directions
             )
+            self.solver_state.K_hat_inverse_approx = cur_K_hat_inverse_approx_term
+
+        new_start = 0
+
+        avg_crosscov = None
+        if self.eval_points is not None:
+            eval_fctl = _EvaluationFunctional(
+                self._gp_params.prior.input_shape,
+                self._gp_params.prior.output_shape,
+                self.eval_points,
+            )
+            eval_crosscov = eval_fctl(self._gp_params.kLas).linop
+            N_eval_points = eval_crosscov.shape[0]
+            avg_crosscov = (1 / N_eval_points) * (
+                eval_crosscov.T
+                @ torch.ones(N_eval_points, dtype=torch.float64, device=device)
+            )
+            self.solver_state.crosscov_residual = torch.clone(avg_crosscov)
+
+        if self._gp_params.prior_inverse_approx is not None:
+            prior_dim = self._gp_params.prior_inverse_approx.shape[0]
+            new_start = prior_dim
+
+            assert isinstance(self._gp_params.prior_inverse_approx, OuterProduct)
+            prior_inverse_approx_extended = ExtendedOuterProduct(
+                self._gp_params.prior_inverse_approx, K_hat.shape
+            )
+            self.solver_state.inverse_approx += prior_inverse_approx_extended
             assert self._gp_params.prev_representer_weights is not None
             prev_representer_weights = self._gp_params.prev_representer_weights
             if self.use_torch:
@@ -218,7 +353,14 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
             self.solver_state.representer_weights[
                 :prior_dim
             ] += prev_representer_weights
-            self.store_K_hat_inverse_approx = False
+
+            if self.store_K_hat_inverse_approx:
+                prior_K_hat_inverse_approx_extended = ExtendedOuterProduct(
+                    self._gp_params.prior_K_hat_inverse_approx, K_hat.shape
+                )  # TODO: It's not that simple. Crosscov term is missing!
+                self.solver_state.K_hat_inverse_approx += (
+                    prior_K_hat_inverse_approx_extended
+                )
 
             self.solver_state.predictive_residual = (
                 residual - K_hat @ self.solver_state.representer_weights
@@ -230,57 +372,73 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
                 else torch.norm(self.solver_state.predictive_residual[new_start:], p=2)
             )
 
-        if self.store_K_hat_inverse_approx:
-            self.solver_state.K_hat_inverse_approx = LowRankProduct(
-                None, None, K_hat.shape, np.float64
+            self.solver_state.crosscov_residual = avg_crosscov - (
+                K_hat @ (self.solver_state.inverse_approx @ avg_crosscov)
             )
+
+            assert self._gp_params.prior_action_matrix is not None
+            N_obs_prior = self._gp_params.prior_action_matrix.shape[0]
+            prior_action_matrix_extended = BlockMatrix(
+                [
+                    [self._gp_params.prior_action_matrix],
+                    [
+                        pn.linops.Zero(
+                            (
+                                K_hat.shape[0] - N_obs_prior,
+                                self._gp_params.prior_action_matrix.shape[1],
+                            )
+                        )
+                    ],
+                ]
+            )
+            self.solver_state.action_matrix = BlockMatrix(
+                [[prior_action_matrix_extended, cur_action_matrix]],
+                cache_transpose=False,
+            )
+            # S_LKL_S = torch.zeros((N_obs_total, N_obs_total), dtype=torch.float64)
+            # S_LKL_S[:N_obs_prior, :N_obs_prior] = torch.tensor(
+            #     self._gp_params.prior_S_LKL_S.todense(), dtype=torch.float64
+            # ).to(device)
+        else:
+            self.solver_state.action_matrix = cur_action_matrix
+            # S_LKL_S = torch.zeros(
+            #     (cur_action_matrix.shape[1], cur_action_matrix.shape[1])
+            # )
 
         benchmarker = SolverBenchmarker(self.benchmark_folder)
         benchmarker.start_benchmark()
 
-        pbar = tqdm(total=K_hat.shape[1])
+        for logger in self.loggers:
+            logger.start(self._gp_params)
 
-        if self.eval_points is not None:
-            if self._gp_params.prior_marginal_uncertainty is None:
-                self.solver_state.marginal_uncertainty = (
-                    self._gp_params.prior.cov.linop(self.eval_points).diagonal().copy()
-                )
-            else:
-                self.solver_state.marginal_uncertainty = (
-                    self._gp_params.prior_marginal_uncertainty.copy()
-                )
+        cur_action_idx = new_start
 
-            if self.use_torch:
-                self.solver_state.marginal_uncertainty = torch.from_numpy(
-                    self.solver_state.marginal_uncertainty
-                ).to(device)
-            eval_fctl = _EvaluationFunctional(
-                self._gp_params.prior.input_shape,
-                self._gp_params.prior.output_shape,
-                self.eval_points,
-            )
-            eval_crosscov = eval_fctl(self._gp_params.kLas).linop
-        while (not self.stopping_criterion(self.solver_state)) and (
-            self.solver_state.iteration < K_hat.shape[1]
-        ):
+        self._rayleighs = []
+
+        while not self.stopping_criterion(self.solver_state):
             action = self.policy(self.solver_state)
             if action is None:  # Policy ran out of actions, quit early
                 break
-            if self.preconditioner is not None:
-                action = self.preconditioner @ action
+            K_hat_action = K_hat @ action
+
+            # S_K_hat_action = (self.solver_state.action_matrix.T @ K_hat_action)[:cur_action_idx]
+            # S_LKL_S[cur_action_idx, :cur_action_idx] = S_K_hat_action
+            # S_LKL_S[:cur_action_idx, cur_action_idx] = S_K_hat_action
+            # cur_action_matrix.append_column(action)
+
             alpha = (
                 torch.dot(action, self.solver_state.predictive_residual)
                 if self.use_torch
                 else np.dot(action, self.solver_state.predictive_residual)
             )
-            K_hat_action = K_hat @ action
             C_K_hat_action = self.solver_state.inverse_approx @ K_hat_action
-            if self.store_K_hat_inverse_approx:
-                K_hat_C_K_hat_action = (
-                    self.solver_state.K_hat_inverse_approx @ K_hat_action
-                )
-            else:
-                K_hat_C_K_hat_action = K_hat @ C_K_hat_action
+            # if self.store_K_hat_inverse_approx:
+            #     K_hat_C_K_hat_action = (
+            #         self.solver_state.K_hat_inverse_approx @ K_hat_action
+            #     )
+            # else:  TODO: Re-add this later for efficiency once the crosscov term is added.
+            K_hat_C_K_hat_action = K_hat @ C_K_hat_action
+
             search_direction = action - C_K_hat_action
             K_hat_search_direction = K_hat_action - K_hat_C_K_hat_action
             normalization_constant = (
@@ -288,11 +446,15 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
                 if self.use_torch
                 else np.dot(action, K_hat_search_direction)
             )
+            # S_LKL_S[cur_action_idx, cur_action_idx] = torch.dot(action, K_hat_action)
+            cur_action_idx += 1
 
             action_T_action = (
                 torch.dot(action, action) if self.use_torch else np.dot(action, action)
             )
-            rayleigh = normalization_constant / action_T_action
+            rayleigh = torch.dot(action, K_hat_action) / action_T_action
+            self._rayleighs.append(rayleigh)
+
             normalization_constant = (
                 1.0 / normalization_constant
                 if normalization_constant > 0.0
@@ -303,18 +465,36 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
                 if not self.use_torch
                 else torch.sqrt(normalization_constant)
             )
-            cur_inverse_approx_term.append_factor(
+
+            search_directions.append_column(
                 search_direction * sqrt_normalization_constant
             )
             if self.store_K_hat_inverse_approx:
-                self.solver_state.K_hat_inverse_approx.append_factors(
-                    K_hat_search_direction * sqrt_normalization_constant,
-                    search_direction * sqrt_normalization_constant,
+                K_hat_search_directions.append_column(
+                    K_hat_search_direction * sqrt_normalization_constant
                 )
+
+            if search_directions._num_cols >= max_num_actions:
+                print("Compressing...")
+                # Compress
+                D = search_directions.data
+                K_hat_D = K_hat_search_directions.data
+                M = eval_crosscov @ D
+                _, _, VT = svd(M, full_matrices=False)
+                V = VT.T
+                V = V[:, : self.num_actions_compressed]
+                search_directions.set_data(D @ V)
+                K_hat_search_directions.set_data(K_hat_D @ V)
 
             self.solver_state.representer_weights += (
                 alpha * normalization_constant
             ) * search_direction
+
+            alpha_crosscov = torch.dot(search_direction, avg_crosscov)
+            self.solver_state.crosscov_residual -= (
+                alpha_crosscov * normalization_constant * K_hat_search_direction
+            )
+
             if not self.compute_residual_directly:
                 self.solver_state.predictive_residual -= (
                     alpha * normalization_constant
@@ -326,11 +506,6 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
 
             if normalization_constant < 0:
                 print(f"Warning: Normalization constant < 0.")
-
-            if self.eval_points is not None:
-                self.solver_state.marginal_uncertainty -= (
-                    eval_crosscov @ (sqrt_normalization_constant * search_direction)
-                ) ** 2
 
             if self.use_torch:
                 self.solver_state.relative_error = (
@@ -345,51 +520,36 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
                     / residual_norm
                 )
 
-            if self.solver_state.relative_error < min_error:
-                min_error = self.solver_state.relative_error
+            self.solver_state.relative_crosscov_error = torch.norm(
+                self.solver_state.crosscov_residual, p=2
+            ) / torch.norm(avg_crosscov, p=2)
 
-            metrics = {
-                "relative_error": self.solver_state.relative_error,
-                "rayleigh": rayleigh,
-            }
-            if len(self._gp_params.Ls) > 1:
-                block_errors = []
-                cur_block_start = 0
-                for i in range(len(self._gp_params.Ls)):
-                    cur_block_end = cur_block_start + K_hat.diagonal_blocks[i].shape[1]
-                    block_errors.append(
-                        torch.norm(
-                            self.solver_state.predictive_residual[
-                                cur_block_start:cur_block_end
-                            ],
-                            p=2,
-                        )
-                        / torch.norm(residual[cur_block_start:cur_block_end], p=2)
-                    )
-                    cur_block_start = cur_block_end
-            else:
-                block_errors = [self.solver_state.relative_error]
+            for logger in self.loggers:
+                logger(self.solver_state)
 
-            block_errors_str = ", ".join(
-                [f"{block_err:.2f}" for block_err in block_errors]
-            )
-
-            mem_gb = torch.cuda.memory_allocated(0) / 1e9 if self.use_torch else 0.0
-            memory_str = f"{mem_gb:.2f}" if self.use_torch else "N/A"
-
-            benchmarker.log_metric(metrics)
-            pbar.set_description(
-                f"Relative error {self.solver_state.relative_error:.2f}, min {min_error:.2f}, Rayleigh {rayleigh:.2f}. Block errors: {block_errors_str}. Mem: {memory_str} "
-            )
-            pbar.update(1)
             self.solver_state.iteration += 1
 
-        pbar.close()
-        benchmarker.save_values()
+        # if self.solver_state.iteration < self.inverse_approx_initial_capacity:
+        #     diff = (
+        #         self.inverse_approx_initial_capacity - self.solver_state.iteration
+        #     )  # Amount of actions we over-allocated
+        #     N_actions_actual = self.solver_state.action_matrix.shape[1] - diff
+        #     new_action_matrix = np.zeros(
+        #         (self.solver_state.action_matrix.shape[0], N_actions_actual)
+        #     )
+        #     new_action_matrix = self.solver_state.action_matrix[:, :N_actions_actual]
+        #     self.solver_state.action_matrix = new_action_matrix
+
+        # self.solver_state.S_LKL_S = S_LKL_S.cpu().numpy()
+
+        for logger in self.loggers:
+            logger.finish()
+
         if self.use_torch:
             self.solver_state.representer_weights = (
                 self.solver_state.representer_weights.cpu().numpy()
             )
+
         return self.solver_state.representer_weights
 
     def compute_posterior_cov(self, x0: np.ndarray, x1: Optional[np.ndarray]):
@@ -455,10 +615,31 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
         return IterGPCovarianceFunction(self._gp_params, self.solver_state)
 
     @property
-    def inverse_approximation(self) -> RankFactorizedMatrix:
+    def inverse_approximation(self) -> OuterProduct:
         if self.solver_state.inverse_approx is None:
             self.compute_representer_weights()
         return self.solver_state.inverse_approx
+
+    @property
+    def K_hat_inverse_approximation(self) -> OuterProduct:
+        if self.solver_state.K_hat_inverse_approx is None:
+            self.compute_representer_weights()
+        return self.solver_state.K_hat_inverse_approx
+
+    @property
+    def action_matrix(self) -> np.ndarray:
+        if self.solver_state.action_matrix is None:
+            self.compute_representer_weights()
+        return self.solver_state.action_matrix
+
+    @property
+    def S_LKL_S(self) -> np.ndarray:
+        return pn.linops.aslinop(
+            np.random.rand(
+                self.solver_state.action_matrix.shape[1],
+                self.solver_state.action_matrix.shape[1],
+            )
+        )
 
 
 class IterGPSolver(GPSolver):
@@ -471,8 +652,9 @@ class IterGPSolver(GPSolver):
         benchmark_folder: str | None = None,
         use_torch=True,
         compute_residual_directly=False,
-        preconditioner=None,
-        inverse_approx_initial_capacity=1430,
+        num_actions_compressed=100,
+        num_actions_explorative=10,
+        loggers: Iterable[Logger] = [TQDMLogger(notebook=True)],
     ):
         self.policy = policy
         self.stopping_criterion = stopping_criterion
@@ -480,8 +662,9 @@ class IterGPSolver(GPSolver):
         self.benchmark_folder = benchmark_folder
         self.use_torch = use_torch
         self.compute_residual_directly = compute_residual_directly
-        self.preconditioner = preconditioner
-        self.inverse_approx_initial_capacity = inverse_approx_initial_capacity
+        self.num_actions_compressed = num_actions_compressed
+        self.num_actions_explorative = num_actions_explorative
+        self.loggers = loggers
         super().__init__()
 
     def get_concrete_solver(self, gp_params: GPInferenceParams) -> ConcreteIterGPSolver:
@@ -493,40 +676,15 @@ class IterGPSolver(GPSolver):
             benchmark_folder=self.benchmark_folder,
             use_torch=self.use_torch,
             compute_residual_directly=self.compute_residual_directly,
-            preconditioner=self.preconditioner,
-            inverse_approx_initial_capacity=self.inverse_approx_initial_capacity,
-        )
-
-
-class IterGP_CG_Solver(IterGPSolver):
-    def __init__(
-        self,
-        max_iterations: int = 1000,
-        threshold=1e-2,
-        *,
-        eval_points: np.ndarray = None,
-        benchmark_folder: str | None = None,
-        use_torch=True,
-        compute_residual_directly=False,
-        preconditioner=None,
-    ):
-        policy = CGPolicy()
-        stopping_criterion = IterationStoppingCriterion(
-            max_iterations
-        ) | ResidualNormStoppingCriterion(threshold)
-        super().__init__(
-            policy,
-            stopping_criterion,
-            eval_points=eval_points,
-            benchmark_folder=benchmark_folder,
-            use_torch=use_torch,
-            compute_residual_directly=compute_residual_directly,
-            preconditioner=None,
+            num_actions_compressed=self.num_actions_compressed,
+            num_actions_explorative=self.num_actions_explorative,
+            loggers=self.loggers,
         )
 
 
 @LinearFunctional.__call__.register
 @CompositeLinearFunctional.__call__.register
+@_EvaluationFunctional.__call__.register
 def _(
     self,
     cov: IterGPCovarianceFunction,
@@ -544,6 +702,7 @@ def _(
 
 @LinearFunctional.__call__.register
 @CompositeLinearFunctional.__call__.register
+@_EvaluationFunctional.__call__.register
 def _(
     self,
     crosscov: IterGPCrossCovariance,

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 import numpy as np
-from linpde_gp.linops import LowRankProduct, RankFactorizedMatrix
+from linpde_gp.linops import OuterProduct
 
 from .._gp_solver import GPInferenceParams
 
@@ -11,8 +11,11 @@ class SolverState:
     iteration: int
     predictive_residual: np.ndarray
     representer_weights: np.ndarray
-    inverse_approx: RankFactorizedMatrix
-    K_hat_inverse_approx: LowRankProduct
+    inverse_approx: OuterProduct
+    action_matrix: np.ndarray
+    K_hat_inverse_approx: OuterProduct
     gp_params: GPInferenceParams
     relative_error: float
-    marginal_uncertainty: np.ndarray | None = None
+    relative_crosscov_error: float
+    S_LKL_S: np.ndarray | None = None
+    crosscov_residual: np.ndarray | None = None
