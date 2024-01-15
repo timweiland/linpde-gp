@@ -2,6 +2,7 @@ from collections.abc import Iterator, Mapping
 from copy import deepcopy
 import functools
 
+import probnum as pn
 import numpy as np
 from probnum.typing import ArrayLike, ShapeType
 
@@ -187,7 +188,7 @@ class PartialDerivativeCoefficients(Mapping[ShapeType, Mapping[MultiIndex, float
         return self + (-other)
 
     def __rmul__(self, other) -> "PartialDerivativeCoefficients":
-        if np.ndim(other) == 0:
+        if np.ndim(other) == 0 or isinstance(other, pn.functions.Function):
             scaled_dict = deepcopy(self._coefficient_dict)
             for codomain_idx in scaled_dict.keys():
                 for multi_index in scaled_dict[codomain_idx].keys():
