@@ -6,7 +6,11 @@ import numpy as np
 import probnum as pn
 
 from linpde_gp.linops import RankOneHadamardProduct
-from linpde_gp.linfunctls import LinearFunctional, ScaledLinearFunctional
+from linpde_gp.linfunctls import (
+    LinearFunctional,
+    ScaledLinearFunctional,
+    VectorizedLebesgueIntegral,
+)
 from linpde_gp.randvars import (
     ArrayCovariance,
     Covariance,
@@ -15,6 +19,7 @@ from linpde_gp.randvars import (
 )
 
 from .._arithmetic import (
+    FunctionScaledProcessVectorCrossCovariance,
     LinOpProcessVectorCrossCovariance,
     ScaledProcessVectorCrossCovariance,
     SumProcessVectorCrossCovariance,
@@ -53,6 +58,15 @@ def _(self, pv_crosscov: ScaledProcessVectorCrossCovariance, /) -> Covariance:
         cov.shape0,
         cov.shape1,
     )
+
+
+@VectorizedLebesgueIntegral.__call__.register  # pylint: disable=no-member
+def _(self, pv_crosscov: FunctionScaledProcessVectorCrossCovariance, /) -> Covariance:
+    centers = (self.domains.pure_array[..., 0] + self.domains.pure_array[..., 1]) / 2
+
+    center_vals = pv_crosscov.fn(centers)
+
+    return (center_vals * self)(pv_crosscov.pv_crosscov)
 
 
 @LinearFunctional.__call__.register  # pylint: disable=no-member

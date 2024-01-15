@@ -127,6 +127,13 @@ class FunctionScaledProcessVectorCrossCovariance(
 
     def __repr__(self) -> str:
         return f"{self._fn} * {self._pv_crosscov}"
+    
+@pn.functions.Function.__mul__.register
+@pn.functions.Function.__rmul__.register
+def _(
+    self, other: _pv_crosscov.ProcessVectorCrossCovariance, /
+) -> pn.functions.Function:
+    return FunctionScaledProcessVectorCrossCovariance(other, fn=self)
 
 
 class SumProcessVectorCrossCovariance(_pv_crosscov.ProcessVectorCrossCovariance):
