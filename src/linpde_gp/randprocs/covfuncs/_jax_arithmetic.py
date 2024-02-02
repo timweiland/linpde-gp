@@ -9,6 +9,9 @@ from probnum.randprocs.covfuncs._arithmetic_fallbacks import (
     ScaledCovarianceFunction,
     SumCovarianceFunction,
 )
+from linpde_gp.randprocs.covfuncs._arithmetic_fallbacks import (
+    FunctionScaledCovarianceFunction,
+)
 from probnum.typing import ArrayLike, ScalarLike, ScalarType
 from pykeops.numpy import LazyTensor
 from pykeops.torch import LazyTensor as LazyTensor_Torch
@@ -58,6 +61,19 @@ class JaxScaledCovarianceFunction(JaxCovarianceFunctionMixin, ScaledCovarianceFu
         self, x0: ArrayLike, x1: ArrayLike | None = None
     ) -> linops.LinearOperator:
         return self._scalar * self.covfunc.linop(x0, x1)
+
+
+class JaxFunctionScaledCovarianceFunction(JaxCovarianceFunctionMixin, FunctionScaledCovarianceFunction):
+    def _evaluate_jax(self, x0: jnp.ndarray, x1: jnp.ndarray | None) -> jnp.ndarray:
+        f0_res = self.fn0(x0) if self.fn0 is not None else 1
+        if self.fn1 is None:
+            f1_res = 1
+        else:
+            f1_res = self._fn1(x1) if x1 is not None else self._fn1(x0)
+
+        if self.output_ndim_0 > 0 and self.output_ndim_1 > 0:
+            return f0_res[..., None] * self.covfunc(x0, x1) * f1_res[..., None, :]
+        return f0_res * self.covfunc(x0, x1) * f1_res
 
 
 T = TypeVar("T", bound=JaxCovarianceFunction)

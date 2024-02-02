@@ -5,6 +5,7 @@ import functools
 from jax import numpy as jnp
 import numpy as np
 from probnum.typing import ArrayLike, ShapeLike
+import probnum as pn
 
 from ._jax import JaxFunction
 
@@ -67,3 +68,11 @@ def _(self, other: Zero):
     assert other.output_shape == self.output_shape
 
     return self
+
+@pn.functions.Function.__mul__.register # pylint: disable=no-member
+@pn.functions.Function.__rmul__.register # pylint: disable=no-member
+def _(self, other: Zero):
+    assert other.input_shape == self.input_shape
+    assert other.output_shape == self.output_shape
+
+    return other

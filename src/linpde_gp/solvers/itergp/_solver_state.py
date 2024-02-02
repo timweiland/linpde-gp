@@ -16,6 +16,6 @@ class SolverState:
     K_hat_inverse_approx: OuterProduct
     gp_params: GPInferenceParams
     relative_error: float
-    relative_crosscov_error: float
+    relative_crosscov_error: float | None = None
     S_LKL_S: np.ndarray | None = None
     crosscov_residual: np.ndarray | None = None

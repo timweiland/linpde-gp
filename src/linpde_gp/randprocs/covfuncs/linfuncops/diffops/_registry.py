@@ -87,7 +87,7 @@ def _(
     else:
         fn1 = self.fn
 
-    return covfuncs.FunctionScaledCovarianceFunction(
+    return covfuncs.JaxFunctionScaledCovarianceFunction(
         self.lindiffop(k, argnum=argnum),
         fn0=fn0,
         fn1=fn1,
@@ -118,7 +118,7 @@ def _(
     if fn1 is None:
         fn1 = k.fn1
 
-    return covfuncs.FunctionScaledCovarianceFunction(
+    return covfuncs.JaxFunctionScaledCovarianceFunction(
         self.lindiffop(k.covfunc, argnum=argnum),
         fn0=fn0,
         fn1=fn1,

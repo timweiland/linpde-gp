@@ -19,6 +19,20 @@ def _(
 
     return k.scalar * self(k.covfunc, argnum=argnum)
 
+@linfuncops.LinearFunctionOperator.__call__.register  # pylint: disable=no-member
+def _(
+    self, k: covfuncs.JaxFunctionScaledCovarianceFunction, /, *, argnum: int = 0
+) -> covfuncs.JaxFunctionScaledCovarianceFunction:
+    validate_covfunc_transformation(self, k, argnum)
+
+    if (argnum == 0 and k.fn0 is None) or (argnum == 1 and k.fn1 is None):
+        return covfuncs.JaxFunctionScaledCovarianceFunction(
+            self(k.covfunc, argnum=argnum),
+            fn0=k.fn0,
+            fn1=k.fn1,
+        )
+    raise NotImplementedError()
+
 
 @linfuncops.LinearFunctionOperator.__call__.register  # pylint: disable=no-member
 def _(

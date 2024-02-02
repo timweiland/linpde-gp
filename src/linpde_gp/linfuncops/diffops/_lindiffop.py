@@ -65,14 +65,14 @@ class LinearDifferentialOperator(LinearFunctionOperator):
         for output_index in self.coefficients:
             inner_summands = []
             for multi_index in self.coefficients[output_index]:
-                partial_diffop = PartialDerivative(multi_index)
+                partial_diffop = self.coefficients[output_index][
+                    multi_index
+                ] * PartialDerivative(multi_index)
                 if output_index != ():  # pylint: disable=comparison-with-callable
                     partial_diffop = partial_diffop @ SelectOutput(
                         self.input_shapes, output_index
                     )
-                inner_summands.append(
-                    self.coefficients[output_index][multi_index] * partial_diffop
-                )
+                inner_summands.append(partial_diffop)
             outer_summands.append(SumLinearFunctionOperator(*inner_summands))
         return SumLinearFunctionOperator(*outer_summands)
 
@@ -89,14 +89,14 @@ class LinearDifferentialOperator(LinearFunctionOperator):
         for output_index in self.coefficients:
             inner_summands = []
             for multi_index in self.coefficients[output_index]:
-                partial_diffop = _PartialDerivativeNoJax(multi_index)
+                partial_diffop = self.coefficients[output_index][
+                    multi_index
+                ] * _PartialDerivativeNoJax(multi_index)
                 if output_index != ():  # pylint: disable=comparison-with-callable
                     partial_diffop = partial_diffop @ SelectOutput(
                         self.input_shapes, output_index
                     )
-                inner_summands.append(
-                    self.coefficients[output_index][multi_index] * partial_diffop
-                )
+                inner_summands.append(partial_diffop)
             outer_summands.append(SumLinearFunctionOperator(*inner_summands))
         return SumLinearFunctionOperator(*outer_summands)
 
@@ -153,9 +153,7 @@ class LinearDifferentialOperator(LinearFunctionOperator):
                 FunctionScaledLinearDifferentialOperator,
             )
 
-            return FunctionScaledLinearDifferentialOperator(
-                lindiffop=self, fn=other
-            )
+            return FunctionScaledLinearDifferentialOperator(lindiffop=self, fn=other)
 
         if np.ndim(other) == 0:
             from ._arithmetic import (  # pylint: disable=import-outside-toplevel
@@ -172,11 +170,10 @@ class LinearDifferentialOperator(LinearFunctionOperator):
     ) -> "linpde_gp.linfunctls.LinearFunctional":
         raise NotImplementedError()
 
+
 @pn.functions.Function.__mul__.register
 @pn.functions.Function.__rmul__.register
-def _(
-    self, other: LinearDifferentialOperator, /
-) -> pn.functions.Function:
+def _(self, other: LinearDifferentialOperator, /) -> pn.functions.Function:
     from ._arithmetic import (  # pylint: disable=import-outside-toplevel
         FunctionScaledLinearDifferentialOperator,
     )

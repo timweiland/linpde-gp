@@ -7,6 +7,7 @@ from jax import numpy as jnp
 import numpy as np
 import probnum as pn
 from probnum.typing import ArrayLike, ScalarType
+from linpde_gp.linops import RankOneHadamardProduct
 
 from linpde_gp.randprocs.covfuncs import TensorProductGrid
 
@@ -123,7 +124,11 @@ class FunctionScaledProcessVectorCrossCovariance(
         return self._fn(x) * self._pv_crosscov.jax(x)
 
     def _evaluate_linop(self, x: np.ndarray) -> pn.linops.LinearOperator:
-        return NotImplemented
+        inner_linop = self._pv_crosscov._evaluate_linop(x)  # pylint: disable=protected-access
+        fn_vals = self._fn(x)
+        if self.reverse:
+            return RankOneHadamardProduct(1, fn_vals, inner_linop)
+        return RankOneHadamardProduct(fn_vals, 1, inner_linop)
 
     def __repr__(self) -> str:
         return f"{self._fn} * {self._pv_crosscov}"

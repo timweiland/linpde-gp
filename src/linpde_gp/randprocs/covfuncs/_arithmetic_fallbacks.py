@@ -1,7 +1,9 @@
 from typing import Optional
 import numpy as np
 import probnum as pn
+from probnum.typing import ArrayLike
 from probnum.randprocs.covfuncs import CovarianceFunction
+from linpde_gp.linops import RankOneHadamardProduct
 
 
 class FunctionScaledCovarianceFunction(CovarianceFunction):
@@ -58,3 +60,16 @@ class FunctionScaledCovarianceFunction(CovarianceFunction):
 
     def __repr__(self) -> str:
         return f"{self._fn0} * {self._covfunc} * {self._fn1}"
+    
+    def linop(
+        self, x0: ArrayLike, x1: Optional[ArrayLike] = None
+    ) -> pn.linops.LinearOperator:
+        inner_linop = self.covfunc.linop(x0, x1)
+        if self.fn0 is None and self.fn1 is None:
+            return inner_linop
+        alpha = self.fn0(x0) if self.fn0 is not None else np.ones(inner_linop.shape[0])
+        if self.fn1 is None:
+            beta = np.ones(inner_linop.shape[1])
+        else:
+            beta = self._fn1(x1) if x1 is not None else self._fn1(x0)
+        return RankOneHadamardProduct(alpha, beta, inner_linop)

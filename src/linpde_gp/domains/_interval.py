@@ -71,21 +71,26 @@ class Interval(Domain, Sequence[np.ndarray]):
         return isinstance(other, Interval) and tuple(self) == tuple(other)
 
     def uniform_grid(
-        self, shape: ShapeLike, inset: ArrayLike = 0.0, centered=False
+        self, shape: ShapeLike, inset: ArrayLike = 0.0, centered=False, bounds: tuple[float] | None = None
     ) -> np.ndarray:
         shape = pn.utils.as_shape(shape)
         inset = np.asarray(inset)
 
         assert len(shape) == 1 and inset.ndim == 0
 
+        if bounds is None:
+            lower, upper = self._lower_bound, self._upper_bound
+        else:
+            lower, upper = bounds
+
         if centered:
             return np.linspace(
-                self._lower_bound + inset,
-                self._upper_bound - inset,
+                lower + inset,
+                upper - inset,
                 shape[0] + 2,
             )[1:-1]
         return np.linspace(
-            self._lower_bound + inset,
-            self._upper_bound - inset,
+            lower + inset,
+            upper - inset,
             shape[0],
         )

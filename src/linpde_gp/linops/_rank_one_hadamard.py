@@ -30,6 +30,11 @@ class RankOneHadamardProduct(pn.linops.LinearOperator):
             -1, order="C"
         )
 
+        if self._row_factors.size == 1:
+            self._row_factors = self._row_factors * np.ones(linop.shape[0])
+        if self._col_factors.size == 1:
+            self._col_factors = self._col_factors * np.ones(linop.shape[1])
+
         if self._row_factors.size != linop.shape[0]:
             raise ValueError(
                 f"Row factors have shape {self._row_factors.size} but should have "

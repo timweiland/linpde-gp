@@ -38,7 +38,7 @@ class DenseCholeskySolverLinearOperator(OuterProduct):
         self._cho = cho_factor(linop.todense(), False)
         self._factor_linop = InverseTriangularMatrix(np.triu(self._cho[0]), lower=False)
 
-        super().__init__(U=self._cho[0])
+        super().__init__(U=linops.aslinop(np.triu(self._cho[0])))
 
     @functools.cached_property
     def cho_torch(self):

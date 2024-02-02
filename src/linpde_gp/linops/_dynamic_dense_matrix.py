@@ -4,6 +4,24 @@ import torch
 import numpy as np
 
 
+class TorchMatrix(pn.linops.LinearOperator):
+    def __init__(self, matrix: torch.Tensor):
+        self._matrix = matrix
+        super().__init__(matrix.shape, np.float64)
+    
+    def _matmul(self, x: np.ndarray) -> np.ndarray:
+        return (self._matrix @ torch.tensor(x, device=self._matrix.device)).cpu().numpy()
+
+    def _matmul_torch(self, x: torch.Tensor) -> torch.Tensor:
+        return self._matrix @ x
+    
+    def _transpose(self) -> pn.linops.LinearOperator:
+        return TorchMatrix(self._matrix.T)
+
+    def _todense(self) -> np.ndarray:
+        return self._matrix.cpu().numpy()
+
+
 class DynamicDenseMatrix(pn.linops.LinearOperator):
     """
     A matrix that can be dynamically filled with columns.
@@ -21,7 +39,13 @@ class DynamicDenseMatrix(pn.linops.LinearOperator):
     def __init__(self, shape: ShapeLike, dtype: DTypeLike):
         self._data = None
         self._num_cols = 0
+        self._shape = shape
         super().__init__(shape, dtype)
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        return self.data.shape if self._data is not None else self._shape
+
 
     @property
     def data(self) -> torch.Tensor | None:
@@ -42,12 +66,12 @@ class DynamicDenseMatrix(pn.linops.LinearOperator):
     def _matmul(self, x: np.ndarray) -> np.ndarray:
         if self._data is None:
             return pn.linops.Zero(self.shape, self.dtype) @ x
-        return self._data.cpu().numpy() @ x
+        return self.data.cpu().numpy() @ x
 
     def _matmul_torch(self, x: torch.Tensor) -> torch.Tensor:
         if self._data is None:
             return pn.linops.Zero(self.shape, self.dtype) @ x
-        return self._data @ x
+        return self.data @ x
 
     def append_column(self, x: np.ndarray | torch.Tensor):
         if self._data is None:
@@ -60,4 +84,9 @@ class DynamicDenseMatrix(pn.linops.LinearOperator):
     def _transpose(self) -> pn.linops.LinearOperator:
         if self._num_cols == 0:
             return pn.linops.Zero((self.shape[1], self.shape[0]), self.dtype)
-        return pn.linops.Matrix(self._data.T)
+        return TorchMatrix(self.data.T)
+
+    def _todense(self) -> np.ndarray:
+        if self._data is None:
+            return np.zeros(self.shape)
+        return self.data

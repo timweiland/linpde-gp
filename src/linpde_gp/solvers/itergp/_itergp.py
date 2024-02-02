@@ -308,9 +308,12 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
             (K_hat.shape[0], max_num_actions), K_hat.dtype
         )
 
-        K_hat_search_directions = DynamicDenseMatrix(
-            (K_hat.shape[0], max_num_actions), np.float64
-        )
+        if self.store_K_hat_inverse_approx:
+            K_hat_search_directions = DynamicDenseMatrix(
+                (K_hat.shape[0], max_num_actions), np.float64
+            )
+        else:
+            K_hat_search_directions = None
 
         if self.store_K_hat_inverse_approx:
             cur_K_hat_inverse_approx_term = OuterProduct(
@@ -372,9 +375,10 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
                 else torch.norm(self.solver_state.predictive_residual[new_start:], p=2)
             )
 
-            self.solver_state.crosscov_residual = avg_crosscov - (
-                K_hat @ (self.solver_state.inverse_approx @ avg_crosscov)
-            )
+            if self.eval_points is not None:
+                self.solver_state.crosscov_residual = avg_crosscov - (
+                    K_hat @ (self.solver_state.inverse_approx @ avg_crosscov)
+                )
 
             assert self._gp_params.prior_action_matrix is not None
             N_obs_prior = self._gp_params.prior_action_matrix.shape[0]
@@ -400,7 +404,8 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
             #     self._gp_params.prior_S_LKL_S.todense(), dtype=torch.float64
             # ).to(device)
         else:
-            self.solver_state.action_matrix = cur_action_matrix
+            pass
+            # self.solver_state.action_matrix = cur_action_matrix
             # S_LKL_S = torch.zeros(
             #     (cur_action_matrix.shape[1], cur_action_matrix.shape[1])
             # )
@@ -424,7 +429,7 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
             # S_K_hat_action = (self.solver_state.action_matrix.T @ K_hat_action)[:cur_action_idx]
             # S_LKL_S[cur_action_idx, :cur_action_idx] = S_K_hat_action
             # S_LKL_S[:cur_action_idx, cur_action_idx] = S_K_hat_action
-            # cur_action_matrix.append_column(action)
+            cur_action_matrix.append_column(action.cpu().numpy()) # Store on CPU
 
             alpha = (
                 torch.dot(action, self.solver_state.predictive_residual)
@@ -490,10 +495,11 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
                 alpha * normalization_constant
             ) * search_direction
 
-            alpha_crosscov = torch.dot(search_direction, avg_crosscov)
-            self.solver_state.crosscov_residual -= (
-                alpha_crosscov * normalization_constant * K_hat_search_direction
-            )
+            if self.eval_points is not None:
+                alpha_crosscov = torch.dot(search_direction, avg_crosscov)
+                self.solver_state.crosscov_residual -= (
+                    alpha_crosscov * normalization_constant * K_hat_search_direction
+                )
 
             if not self.compute_residual_directly:
                 self.solver_state.predictive_residual -= (
@@ -520,9 +526,10 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
                     / residual_norm
                 )
 
-            self.solver_state.relative_crosscov_error = torch.norm(
-                self.solver_state.crosscov_residual, p=2
-            ) / torch.norm(avg_crosscov, p=2)
+            if self.eval_points is not None:
+                self.solver_state.relative_crosscov_error = torch.norm(
+                    self.solver_state.crosscov_residual, p=2
+                ) / torch.norm(avg_crosscov, p=2)
 
             for logger in self.loggers:
                 logger(self.solver_state)

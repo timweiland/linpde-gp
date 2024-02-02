@@ -88,7 +88,7 @@ class Box(CartesianProduct):
         return isinstance(other, Box) and np.all(self.bounds == other.bounds)
 
     def uniform_grid(
-        self, shape: ShapeLike, inset: ArrayLike = 0.0, centered=False
+        self, shape: ShapeLike, inset: ArrayLike = 0.0, centered=False, bounds: tuple[tuple[float]] | None = None
     ) -> "TensorProductGrid":
         from linpde_gp.randprocs.covfuncs import (  # pylint: disable=import-outside-toplevel
             TensorProductGrid,
@@ -104,19 +104,22 @@ class Box(CartesianProduct):
         total_shape[self._interior_idcs] = interior_shape
         total_insets[self._interior_idcs] = interior_inset
 
-        def get_grid(idx, num_points, inset):
+        if bounds is None:
+            bounds = (None for _ in range(total_dim))
+
+        def get_grid(idx, num_points, inset, cur_bounds):
             sub_domain = self[int(idx)]
             if isinstance(sub_domain, Interval):
-                return sub_domain.uniform_grid(num_points, inset=inset, centered=centered)
+                return sub_domain.uniform_grid(num_points, inset=inset, centered=centered, bounds=cur_bounds)
             assert isinstance(sub_domain, Point)
             assert num_points == 1
             return np.array(sub_domain).reshape((1,))
 
         return TensorProductGrid(
             *(
-                get_grid(idx, num_points, inset)
-                for idx, (num_points, inset) in enumerate(
-                    zip(total_shape, total_insets)
+                get_grid(idx, num_points, inset, cur_bounds)
+                for idx, (num_points, inset, cur_bounds) in enumerate(
+                    zip(total_shape, total_insets, bounds)
                 )
             ),
             indexing="ij",

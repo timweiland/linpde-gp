@@ -8,7 +8,11 @@ from ._jax import (
     JaxIsotropicMixin,
     JaxLambdaCovarianceFunction,
 )
-from ._jax_arithmetic import JaxScaledCovarianceFunction, JaxSumCovarianceFunction
+from ._jax_arithmetic import (
+    JaxFunctionScaledCovarianceFunction,
+    JaxScaledCovarianceFunction,
+    JaxSumCovarianceFunction,
+)
 from ._matern import Matern
 from ._parametric import ParametricCovarianceFunction
 from ._stack import StackCovarianceFunction

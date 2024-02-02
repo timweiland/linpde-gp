@@ -184,13 +184,12 @@ def _(
     *,
     argnum: int = 0,
 ):
-    print("Integrating a FunctionScaledCovarianceFunction")
     validate_covfunc_transformation(self, k, argnum)
 
     centers = (self.domains.pure_array[..., 0] + self.domains.pure_array[..., 1]) / 2
-    print(centers.shape)
 
     fn = k.fn1 if argnum == 1 else k.fn0
+    other_fn = k.fn0 if argnum == 1 else k.fn1
 
     if fn is None:
         if other_fn is None:
@@ -199,7 +198,6 @@ def _(
             self(k.covfunc, argnum=argnum), other_fn
         )
 
-    other_fn = k.fn0 if argnum == 1 else k.fn1
     center_vals = fn(centers)
 
     if other_fn is None:

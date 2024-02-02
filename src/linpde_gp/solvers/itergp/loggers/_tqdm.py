@@ -23,7 +23,10 @@ class TQDMLogger(Logger):
         mem_gb = torch.cuda.memory_allocated(0) / 1e9
         memory_str = f"{mem_gb:.2f}"
 
-        description_str = f"Rel. error: {solver_state.relative_error:.2e}. Rel. crosscov error: {solver_state.relative_crosscov_error:.2e}. Memory {memory_str} GB."
+        description_str = f"Rel. error: {solver_state.relative_error:.2e}."
+        if solver_state.relative_crosscov_error is not None:
+            description_str += f" Rel. crosscov error: {solver_state.relative_crosscov_error:.2e}."
+        description_str += f" Memory {memory_str} GB."
         self._pbar.set_description(description_str)
         self._pbar.update(1)
 

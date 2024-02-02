@@ -10,7 +10,7 @@ from pykeops.numpy import LazyTensor
 
 from linpde_gp.linfuncops import diffops
 
-from ..._jax_arithmetic import JaxSumCovarianceFunction
+from ..._jax_arithmetic import JaxFunctionScaledCovarianceFunction, JaxSumCovarianceFunction
 from ..._tensor_product import (
     TensorProduct,
     TensorProductGrid,
@@ -64,7 +64,7 @@ class TensorProduct_LinDiffOp_LinDiffOp(JaxSumCovarianceFunction[TensorProduct])
                         (L0_multi_index[domain_idx], L1_multi_index[domain_idx])
                     ] = cur_factor
                     cur_tp_factors.append(cur_factor)
-                summands.append(L0_coeff * L1_coeff * TensorProduct(*cur_tp_factors))
+                summands.append(self._get_summand(L0_coeff, L1_coeff, cur_tp_factors))
         self._L0kL1s = L0kL1s
 
         super().__init__(*summands)
@@ -80,6 +80,19 @@ class TensorProduct_LinDiffOp_LinDiffOp(JaxSumCovarianceFunction[TensorProduct])
     @property
     def L1(self) -> diffops.LinearDifferentialOperator:
         return self._L1
+    
+    def _get_summand(self, L0_coeff, L1_coeff, cur_tp_factors):
+        tp = TensorProduct(*cur_tp_factors)
+        if isinstance(L0_coeff, float) and isinstance(L1_coeff, float):
+            return L0_coeff * L1_coeff * tp
+        elif isinstance(L0_coeff, pn.functions.Function) and isinstance(L1_coeff, float):
+            return L1_coeff * JaxFunctionScaledCovarianceFunction(tp, fn0=L0_coeff)
+        elif isinstance(L0_coeff, float) and isinstance(L1_coeff, pn.functions.Function):
+            return L0_coeff * JaxFunctionScaledCovarianceFunction(tp, fn1=L1_coeff)
+        elif isinstance(L0_coeff, pn.functions.Function) and isinstance(L1_coeff, pn.functions.Function):
+            return JaxFunctionScaledCovarianceFunction(tp, fn0=L0_coeff, fn1=L1_coeff)
+        else:
+            raise ValueError("Unknown combination of L0_coeff and L1_coeff")
 
     def _compute_res(
         self, compute_functional, res_zero_value=0.0, reduction_operator=operator.mul

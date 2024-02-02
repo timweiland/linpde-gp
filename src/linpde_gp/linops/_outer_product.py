@@ -26,6 +26,11 @@ class OuterProduct(pn.linops.LinearOperator):
         super().__init__((U.shape[0], self._V.shape[0]), U.dtype)
         if V is None:
             self.is_symmetric = True
+    
+    @property
+    def shape(self) -> tuple[int, int]:
+        # Enable dynamic shape for dynamic outer products
+        return (self._U.shape[0], self._V.shape[0])
 
     @property
     def U(self) -> pn.linops.LinearOperator:

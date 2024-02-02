@@ -52,6 +52,13 @@ class BlockMatrix(pn.linops.LinearOperator):
         self._cache_transpose = cache_transpose
 
     @property
+    def shape(self) -> tuple[int, int]:
+        # Enable dynamic shape for dynamic block matrices
+        num_rows = sum((block.shape[0] for block in self._blocks[:, 0]))
+        num_cols = sum((block.shape[1] for block in self._blocks[0, :]))
+        return (num_rows, num_cols)
+
+    @property
     def blocks(self) -> np.ndarray:
         return self._blocks
 
