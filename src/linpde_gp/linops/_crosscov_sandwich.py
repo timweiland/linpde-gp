@@ -25,7 +25,6 @@ class CrosscovSandwich(linops.LinearOperator):
         return self
 
     def _todense(self) -> np.ndarray:
-        print("Called crosscov sandwich todense")
         device = "cuda" if torch.cuda.is_available() else "cpu"
         # Much lower memory consumption than matmul with identity matrix
         res = torch.zeros(self.shape, dtype=torch.float64).to(device)

@@ -1,11 +1,9 @@
-from dataclasses import dataclass
-from typing import List, Optional, Iterable
+from typing import Optional, Iterable
 
 import jax.numpy as jnp
 import numpy as np
 from probnum import linops
 from probnum.typing import ArrayLike
-from tqdm.notebook import tqdm
 import torch
 
 from linpde_gp.linfunctls import (
@@ -15,7 +13,6 @@ from linpde_gp.linfunctls import (
 )
 from linpde_gp.linops import (
     BlockMatrix,
-    ProductBlockMatrix,
     BlockMatrix2x2,
     ExtendedOuterProduct,
     OuterProduct,
@@ -33,30 +30,15 @@ from .._gp_solver import ConcreteGPSolver, GPInferenceParams, GPSolver
 from .._solver_benchmarker import SolverBenchmarker
 from ..covfuncs import DowndateCovarianceFunction
 from ._solver_state import SolverState
-from .policies import CGPolicy, Policy
+from .policies import Policy
 from .loggers import Logger, TQDMLogger
 from .stopping_criteria import (
-    IterationStoppingCriterion,
-    ResidualNormStoppingCriterion,
     StoppingCriterion,
 )
 
 import probnum as pn
 from scipy.linalg import cho_factor, cho_solve
 from scipy.linalg import svd
-
-
-def hutch_plusplus(A, k=100):
-    """
-    Hutch++ trace estimator for symmetric matrices.
-    """
-    # Sample S iid with entries in {+1, -1}
-    S = np.random.choice([-1, 1], size=(A.shape[0], k))
-    G = np.random.choice([-1, 1], size=(A.shape[0], k))
-    Q, _ = np.linalg.qr(A @ S)
-    Z = G - Q @ Q.T @ G
-    return np.trace(Q.T @ (A @ Q)) + np.trace(Z.T @ (A @ Z)) / k
-
 
 class IterGPCovarianceFunction(DowndateCovarianceFunction):
     def __init__(
@@ -143,25 +125,19 @@ class IterGPCovarianceFunction(DowndateCovarianceFunction):
             )
 
             Si = self._solver_state.action_matrix
-            print("Computing kL_X_action...")
             kL_X_action = kL_X @ Si.todense()
-            print("Done.")
             Si_LkL_Si = self._solver_state.S_LKL_S
-            print("Computed Si_LkL_Si")
             self._Si_LkL_Si_cho = cho_factor(
                 Si_LkL_Si + 1e-9 * np.eye(Si_LkL_Si.shape[1])
             )
 
             cross_term = (k_XX_cho.inv() @ kL_X_action).T
-            print("Cross term shape:" + str(cross_term.shape))
 
             S = Si_LkL_Si - cross_term @ cross_term.T
-            print("Computed S")
             S_cho, _ = cho_factor(S + 1e-9 * np.eye(S.shape[1]), lower=True)
             S_cho = np.tril(S_cho)
             S_cho = linops.aslinop(S_cho)
             S_cho.is_lower_triangular = True
-            print("Computed cho factor of S")
 
             self._L_block = BlockMatrix2x2(k_XX_cho, None, cross_term, S_cho)
 
@@ -295,7 +271,6 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
         self.solver_state.predictive_residual = torch.clone(residual)
         self.solver_state.relative_error = 1.0
 
-        # avg_crosscov_weights = torch.zeros_like(self.solver_state.representer_weights)
         max_num_actions = self.num_actions_compressed + self.num_actions_explorative
 
         search_directions = DynamicDenseMatrix(
@@ -399,16 +374,6 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
                 [[prior_action_matrix_extended, cur_action_matrix]],
                 cache_transpose=False,
             )
-            # S_LKL_S = torch.zeros((N_obs_total, N_obs_total), dtype=torch.float64)
-            # S_LKL_S[:N_obs_prior, :N_obs_prior] = torch.tensor(
-            #     self._gp_params.prior_S_LKL_S.todense(), dtype=torch.float64
-            # ).to(device)
-        else:
-            pass
-            # self.solver_state.action_matrix = cur_action_matrix
-            # S_LKL_S = torch.zeros(
-            #     (cur_action_matrix.shape[1], cur_action_matrix.shape[1])
-            # )
 
         benchmarker = SolverBenchmarker(self.benchmark_folder)
         benchmarker.start_benchmark()
@@ -426,9 +391,6 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
                 break
             K_hat_action = K_hat @ action
 
-            # S_K_hat_action = (self.solver_state.action_matrix.T @ K_hat_action)[:cur_action_idx]
-            # S_LKL_S[cur_action_idx, :cur_action_idx] = S_K_hat_action
-            # S_LKL_S[:cur_action_idx, cur_action_idx] = S_K_hat_action
             cur_action_matrix.append_column(action.cpu().numpy()) # Store on CPU
 
             alpha = (
@@ -437,11 +399,6 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
                 else np.dot(action, self.solver_state.predictive_residual)
             )
             C_K_hat_action = self.solver_state.inverse_approx @ K_hat_action
-            # if self.store_K_hat_inverse_approx:
-            #     K_hat_C_K_hat_action = (
-            #         self.solver_state.K_hat_inverse_approx @ K_hat_action
-            #     )
-            # else:  TODO: Re-add this later for efficiency once the crosscov term is added.
             K_hat_C_K_hat_action = K_hat @ C_K_hat_action
 
             search_direction = action - C_K_hat_action
@@ -535,19 +492,6 @@ class ConcreteIterGPSolver(ConcreteGPSolver):
                 logger(self.solver_state)
 
             self.solver_state.iteration += 1
-
-        # if self.solver_state.iteration < self.inverse_approx_initial_capacity:
-        #     diff = (
-        #         self.inverse_approx_initial_capacity - self.solver_state.iteration
-        #     )  # Amount of actions we over-allocated
-        #     N_actions_actual = self.solver_state.action_matrix.shape[1] - diff
-        #     new_action_matrix = np.zeros(
-        #         (self.solver_state.action_matrix.shape[0], N_actions_actual)
-        #     )
-        #     new_action_matrix = self.solver_state.action_matrix[:, :N_actions_actual]
-        #     self.solver_state.action_matrix = new_action_matrix
-
-        # self.solver_state.S_LKL_S = S_LKL_S.cpu().numpy()
 
         for logger in self.loggers:
             logger.finish()
